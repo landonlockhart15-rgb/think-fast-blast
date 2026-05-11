@@ -311,6 +311,7 @@ export default function App() {
 
   const handleBoardTouchStart = (event) => {
     if (stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    event.preventDefault();
     const touch = event.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
   };
@@ -319,6 +320,7 @@ export default function App() {
     const start = touchStartRef.current;
     touchStartRef.current = null;
     if (!start || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    event.preventDefault();
 
     const touch = event.changedTouches[0];
     const dx = touch.clientX - start.x;
@@ -332,13 +334,13 @@ export default function App() {
       return;
     }
 
-    if (absX > absY && absX > 24) {
+    if (absX > absY && absX > 18) {
       moveHorizontal(dx > 0 ? 1 : -1);
       return;
     }
 
-    if (dy > 28 || dy < -36) {
-      hardDrop();
+    if (dy > 20) {
+      moveDown();
     }
   };
 
