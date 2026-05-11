@@ -1,4 +1,4 @@
-import { BOARD_HEIGHT, BOARD_WIDTH } from "../data/constants";
+import { BOARD_HEIGHT, BOARD_WIDTH } from "../data/constants.js";
 
 export const createEmptyBoard = () =>
   Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(null));
@@ -22,7 +22,7 @@ export const checkCollision = (piece, currentBoard) => {
       const isOutOfBounds =
         boardX < 0 || boardX >= BOARD_WIDTH || boardY >= BOARD_HEIGHT;
       const hitsPlacedBlock =
-        boardY >= 0 && currentBoard[boardY][boardX] !== null;
+        boardY >= 0 && boardY < BOARD_HEIGHT && currentBoard[boardY][boardX] !== null;
 
       if (isOutOfBounds || hitsPlacedBlock) return true;
     }
