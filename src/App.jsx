@@ -284,7 +284,29 @@ export default function App() {
 
     let y = piece.y;
     while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
-    setActivePiece({ ...piece, y });
+    const droppedPiece = { ...piece, y };
+    setActivePiece(droppedPiece);
+
+    // Lock immediately so touch/space hard-drops always advance the quiz flow.
+    const nextBoard = currentBoard.map((row) => [...row]);
+    droppedPiece.shape.forEach((row, shapeY) => {
+      row.forEach((value, shapeX) => {
+        if (!value) return;
+        const boardY = droppedPiece.y + shapeY;
+        const boardX = droppedPiece.x + shapeX;
+        if (boardY >= 0) {
+          nextBoard[boardY][boardX] = {
+            color: droppedPiece.color,
+            isFruit: droppedPiece.isFruit || false,
+            emoji: droppedPiece.emoji || "",
+            isStone: droppedPiece.isStone || false,
+          };
+        }
+      });
+    });
+    setBoard(nextBoard);
+    setActivePiece(null);
+    setGameState("resolving");
   }, []);
 
   const handleBoardTouchStart = (event) => {
@@ -315,9 +337,7 @@ export default function App() {
       return;
     }
 
-    if (dy > 28) {
-      moveDown();
-    } else if (dy < -36) {
+    if (dy > 28 || dy < -36) {
       hardDrop();
     }
   };
@@ -463,7 +483,7 @@ export default function App() {
               <button type="button" onClick={rotatePiece} className="mobile-control-button">↑</button>
               <div />
               <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button">←</button>
-              <button type="button" onClick={moveDown} className="mobile-control-button">↓</button>
+              <button type="button" onClick={hardDrop} className="mobile-control-button">↓</button>
               <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button">→</button>
             </div>
           )}
@@ -577,7 +597,7 @@ export default function App() {
               </h3>
               {isControllable ? (
                 <>
-                <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">Tap board to rotate. Swipe to move or drop.</p>
+                <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">Tap board to rotate. Swipe sideways to move. Swipe down to drop.</p>
                 <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
                   <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Arrows</kbd> Move & Rotate</p>
                   <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Space</kbd> Hard Drop</p>
