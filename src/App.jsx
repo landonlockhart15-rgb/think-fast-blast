@@ -34,6 +34,7 @@ const readSavedProgress = () => {
 
 export default function App() {
   const [gameState, setGameState] = useState("start");
+  const [showInstructions, setShowInstructions] = useState(true);
   const [level, setLevel] = useState(1);
   const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(readSavedProgress);
   const [board, setBoard] = useState(createEmptyBoard());
@@ -55,6 +56,7 @@ export default function App() {
   // Timers and keyboard events need the newest state without being rebuilt on
   // every render. This ref mirrors the live game state for those callbacks.
   const stateRef = useRef({ board, activePiece, gameState, isControllable, pendingBlocks });
+  const touchStartRef = useRef(null);
 
   useEffect(() => {
     stateRef.current = { board, activePiece, gameState, isControllable, pendingBlocks };
@@ -285,6 +287,41 @@ export default function App() {
     setActivePiece({ ...piece, y });
   }, []);
 
+  const handleBoardTouchStart = (event) => {
+    if (stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    const touch = event.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  };
+
+  const handleBoardTouchEnd = (event) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const quickTap = Date.now() - start.time < 260 && absX < 14 && absY < 14;
+
+    if (quickTap) {
+      rotatePiece();
+      return;
+    }
+
+    if (absX > absY && absX > 24) {
+      moveHorizontal(dx > 0 ? 1 : -1);
+      return;
+    }
+
+    if (dy > 28) {
+      moveDown();
+    } else if (dy < -36) {
+      hardDrop();
+    }
+  };
+
   useEffect(() => {
     if (gameState !== "dropping") return undefined;
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
@@ -379,17 +416,26 @@ export default function App() {
 
   const currentQuestion = shuffledQuestions[questionIndex];
   const currentLevel = LEVELS.find((item) => item.id === level) || LEVELS[0];
+  const isMenu = gameState === "start";
+  const panelClass = isMenu
+    ? "w-full max-w-5xl h-full flex flex-col items-center justify-center text-center z-10"
+    : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-center text-center md:text-left relative overflow-hidden z-10";
 
   return (
-    <div className="min-h-screen animated-bg text-slate-100 font-sans flex flex-col items-center p-4 overflow-x-hidden">
-      <div className="w-full max-w-5xl mx-auto flex flex-col md:flex-row gap-8 items-start pt-4 md:pt-12">
-        <section className="w-full md:w-1/2 flex flex-col items-center z-10" aria-label="Game board">
-          <div className="flex justify-between w-full max-w-[300px] mb-3 px-3 py-2 bg-slate-900/80 backdrop-blur-md rounded-xl text-sm font-bold border border-slate-700/50 shadow-xl">
+    <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
+      <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-5xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
+        {!isMenu && (
+        <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
+          <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
             <span className="text-slate-300">Lvl {level} | Score: <span className="text-cyan-400 text-lg">{totalScore}/{WIN_SCORE_TARGET}</span></span>
             <span className="text-red-400">Strikes: {misses}/{STRIKES_ALLOWED}</span>
           </div>
 
-          <div className="bg-slate-900 border-4 border-slate-700 p-1 rounded-lg w-full max-w-[300px] aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden">
+          <div
+            className="game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none"
+            onTouchStart={handleBoardTouchStart}
+            onTouchEnd={handleBoardTouchEnd}
+          >
             {displayBoard.map((row, y) =>
               row.map((cell, x) => {
                 const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
@@ -412,106 +458,101 @@ export default function App() {
           </div>
 
           {gameState === "dropping" && isControllable && (
-            <div className="grid grid-cols-3 gap-2 mt-6 w-full max-w-[300px] md:hidden">
+            <div className="game-controls grid grid-cols-3 gap-1.5 mt-2 md:hidden">
               <div />
-              <button type="button" onClick={rotatePiece} className="bg-slate-700 active:bg-slate-600 p-4 rounded-lg flex justify-center items-center shadow-lg text-xl border border-slate-600">↑</button>
+              <button type="button" onClick={rotatePiece} className="mobile-control-button">↑</button>
               <div />
-              <button type="button" onClick={() => moveHorizontal(-1)} className="bg-slate-700 active:bg-slate-600 p-4 rounded-lg flex justify-center items-center shadow-lg text-xl border border-slate-600">←</button>
-              <button type="button" onClick={moveDown} className="bg-slate-700 active:bg-slate-600 p-4 rounded-lg flex justify-center items-center shadow-lg text-xl border border-slate-600">↓</button>
-              <button type="button" onClick={() => moveHorizontal(1)} className="bg-slate-700 active:bg-slate-600 p-4 rounded-lg flex justify-center items-center shadow-lg text-xl border border-slate-600">→</button>
+              <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button">←</button>
+              <button type="button" onClick={moveDown} className="mobile-control-button">↓</button>
+              <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button">→</button>
             </div>
           )}
         </section>
+        )}
 
-        <main className="w-full md:w-1/2 flex flex-col items-center md:items-start p-6 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-3xl shadow-2xl min-h-[350px] justify-center text-center md:text-left relative animate-float z-10">
+        <main className={panelClass}>
           {gameState !== "start" && (
-            <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full shadow-lg border border-white/20">
+            <div className="static md:absolute md:top-4 md:right-4 mb-2 md:mb-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[10px] md:text-xs font-black px-3 md:px-4 py-1.5 rounded-full shadow-lg border border-white/20">
               LEVEL {level}: {currentLevel.name}
             </div>
           )}
 
           {gameState === "start" && (
-            <div className="flex flex-col items-center md:items-start w-full">
-              <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
-              <div className="text-slate-300 mb-8 leading-relaxed space-y-4 text-sm md:text-base font-medium">
-                <p className="text-xl">Answer fast, place smart, and reach <strong className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{WIN_SCORE_TARGET} points</strong> to beat each level.</p>
-                <div className="grid gap-3">
-                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 shadow-inner text-left">
-                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-3">How to Play</h2>
-                    <ul className="space-y-2">
+            showInstructions ? (
+              <div className="menu-panel w-full max-w-3xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6">
+                <h1 className="text-4xl md:text-6xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
+                <p className="text-base md:text-xl text-slate-300 mb-4">Answer fast, place smart, and reach <strong className="text-cyan-400">{WIN_SCORE_TARGET} points</strong> to beat each level.</p>
+                <div className="grid md:grid-cols-[1.4fr_1fr] gap-3 text-left text-sm md:text-base">
+                  <div className="bg-slate-900/50 p-3 md:p-4 rounded-xl border border-slate-700/50 shadow-inner">
+                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-2">How to Play</h2>
+                    <ul className="space-y-1.5">
                       <li>Answer correctly to earn a block you can move and rotate.</li>
-                      <li>Connect 5 same-color blocks touching up, down, left, or right to blast them for points.</li>
-                      <li>Fill a full row like Tetris to clear the whole line.</li>
-                      <li>Fruit blocks explode nearby blocks after they land.</li>
-                      <li>Wrong answers reveal the correct answer, then drop a stone block you cannot control.</li>
+                      <li>Connect 5 same-color blocks touching up, down, left, or right to blast them.</li>
+                      <li>Fill a full row like Tetris to clear the line.</li>
+                      <li>Wrong answers reveal the answer, then drop a stone block.</li>
                     </ul>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-left">
-                    <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 shadow-inner">
-                      <h2 className="text-white font-black uppercase tracking-widest text-xs mb-3">Points</h2>
-                      <ul className="space-y-2">
-                        <li>Correct answer: <strong className="text-green-400">+10</strong></li>
-                        <li>Fruit blast: <strong className="text-yellow-400">+50</strong></li>
-                        <li>5-color blast: <strong className="text-blue-400">+30</strong></li>
-                        <li>Full line: <strong className="text-purple-400">+100</strong></li>
-                      </ul>
-                    </div>
-                    <div className="bg-slate-900/50 p-4 rounded-xl border border-red-500/40 shadow-inner">
-                      <h2 className="text-red-200 font-black uppercase tracking-widest text-xs mb-3">Watch Out</h2>
-                      <ul className="space-y-2">
-                        <li>3 wrong answers ends the run.</li>
-                        <li>Blocks touching the top ends the run.</li>
-                        <li>Stone blocks only clear with lines or fruit.</li>
-                      </ul>
-                    </div>
+                  <div className="bg-slate-900/50 p-3 md:p-4 rounded-xl border border-slate-700/50 shadow-inner">
+                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-2">Win & Lose</h2>
+                    <ul className="space-y-1.5">
+                      <li>Correct: <strong className="text-green-400">+10</strong></li>
+                      <li>5-color blast: <strong className="text-blue-400">+30</strong></li>
+                      <li>Full line: <strong className="text-purple-400">+100</strong></li>
+                      <li>Fruit blast: <strong className="text-yellow-400">+50</strong></li>
+                      <li>Lose at 3 strikes or if blocks touch the top.</li>
+                    </ul>
                   </div>
-                  <p className="text-cyan-200 border-l-4 border-cyan-400 pl-3 text-left">
-                    Progress saves on this device. Highest unlocked level: <strong>{maxUnlockedLevel}</strong>.
-                  </p>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <button type="button" onClick={() => setMaxUnlockedLevel(FINAL_LEVEL_ID)} className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-2.5 px-4 rounded-lg shadow-lg transition-transform hover:scale-105">
-                    Unlock All Levels
-                  </button>
-                  <button type="button" onClick={() => setMaxUnlockedLevel(1)} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2.5 px-4 rounded-lg shadow-lg transition-transform hover:scale-105 border border-slate-500">
-                    Reset Progress
-                  </button>
+                <button type="button" onClick={() => setShowInstructions(false)} className="mt-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-3 px-8 rounded-xl shadow-lg transition-transform hover:scale-105">
+                  Let's Play
+                </button>
+              </div>
+            ) : (
+              <div className="menu-panel w-full max-w-5xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-3 md:p-5">
+                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-3 text-left">
+                  <div>
+                    <h1 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
+                    <p className="text-sm md:text-base text-cyan-200">Highest unlocked level: <strong>{maxUnlockedLevel}</strong></p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setShowInstructions(true)} className="menu-small-button">Rules</button>
+                    <button type="button" onClick={() => setMaxUnlockedLevel(FINAL_LEVEL_ID)} className="menu-small-button bg-cyan-500 text-slate-950 border-cyan-300">Unlock All</button>
+                    <button type="button" onClick={() => setMaxUnlockedLevel(1)} className="menu-small-button">Reset</button>
+                  </div>
+                </div>
+                <div className="level-grid">
+                  {LEVELS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      disabled={item.id > maxUnlockedLevel}
+                      onClick={() => startLevel(item.id)}
+                      className={`level-card ${
+                        item.id <= maxUnlockedLevel
+                          ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:scale-[1.01] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] border-white/20"
+                          : "bg-slate-800 text-slate-500 cursor-not-allowed border-slate-700/50"
+                      }`}
+                    >
+                      <span className="block text-[10px] md:text-xs uppercase tracking-widest opacity-80">{item.id <= maxUnlockedLevel ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}</span>
+                      <span className="block text-base md:text-xl mt-0.5">{item.name}</span>
+                      <span className="block text-xs md:text-sm mt-0.5 font-semibold opacity-80">{item.theme}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-
-              <h2 className="text-xl font-bold mb-4 text-white drop-shadow-md">Select Level</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-                {LEVELS.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={item.id > maxUnlockedLevel}
-                    onClick={() => startLevel(item.id)}
-                    className={`text-left font-black p-4 rounded-xl transition-all border min-h-[96px] ${
-                      item.id <= maxUnlockedLevel
-                        ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:scale-[1.02] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] border-white/20"
-                        : "bg-slate-800 text-slate-500 cursor-not-allowed border-slate-700/50"
-                    }`}
-                  >
-                    <span className="block text-xs uppercase tracking-widest opacity-80">{item.id <= maxUnlockedLevel ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}</span>
-                    <span className="block text-xl mt-1">{item.name}</span>
-                    <span className="block text-sm mt-1 font-semibold opacity-80">{item.theme}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            )
           )}
 
           {gameState === "quiz" && currentQuestion && (
-            <div className="w-full flex flex-col">
-              <h2 className="text-sm font-black text-cyan-400 uppercase tracking-widest mb-3 flex items-center gap-2 justify-center md:justify-start">
+            <div className="w-full flex flex-col min-h-0">
+              <h2 className="text-xs md:text-sm font-black text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
                 <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                 Question {questionIndex + 1}
               </h2>
-              <h3 className="text-2xl md:text-3xl font-bold mb-8 text-white leading-tight drop-shadow-md">{currentQuestion.q}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+              <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">{currentQuestion.q}</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
                 {currentQuestion.options.map((option, index) => (
-                  <button key={option} type="button" onClick={() => handleAnswer(index)} className="bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] transition-all p-5 rounded-2xl text-lg font-bold text-left shadow-lg border border-slate-600/50">
+                  <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
                     {option}
                   </button>
                 ))}
@@ -520,8 +561,8 @@ export default function App() {
           )}
 
           {gameState === "transition" && (
-            <div className="w-full flex flex-col items-center justify-center py-12">
-              <h2 className={`text-4xl md:text-5xl font-black ${isControllable ? "text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]" : "text-slate-400 drop-shadow-[0_0_15px_rgba(148,163,184,0.5)]"} animate-pulse text-center leading-tight`}>
+            <div className="w-full flex flex-col items-center justify-center py-4 md:py-12">
+              <h2 className={`text-2xl md:text-5xl font-black ${isControllable ? "text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]" : "text-slate-400 drop-shadow-[0_0_15px_rgba(148,163,184,0.5)]"} animate-pulse text-center leading-tight`}>
                 {feedback}
               </h2>
             </div>
@@ -529,19 +570,22 @@ export default function App() {
 
           {gameState === "dropping" && (
             <div className="w-full flex flex-col items-center md:items-start text-slate-300">
-              <h3 className="text-2xl font-black mb-6 text-white drop-shadow-md">
+              <h3 className="text-xl md:text-2xl font-black mb-3 md:mb-6 text-white drop-shadow-md">
                 {isControllable
                   ? `Place your block! ${totalBlocksThisTurn > 1 ? `(Block ${totalBlocksThisTurn - pendingBlocks} of ${totalBlocksThisTurn})` : ""}`
                   : "STONE INCOMING!"}
               </h3>
               {isControllable ? (
-                <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50">
+                <>
+                <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">Tap board to rotate. Swipe to move or drop.</p>
+                <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
                   <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Arrows</kbd> Move & Rotate</p>
                   <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Space</kbd> Hard Drop</p>
                 </div>
+                </>
               ) : (
-                <div className="bg-slate-700/50 p-6 rounded-2xl border border-slate-500/50">
-                  <p className="text-slate-300 font-black text-lg">You have no control over this stone piece!</p>
+                <div className="bg-slate-700/50 p-3 md:p-6 rounded-2xl border border-slate-500/50">
+                  <p className="text-slate-300 font-black text-base md:text-lg">You have no control over this stone piece!</p>
                 </div>
               )}
             </div>
@@ -549,14 +593,14 @@ export default function App() {
 
           {gameState === "level_win" && (
             <div className="w-full flex flex-col items-center md:items-start">
-              <h2 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">Level Complete!</h2>
-              <p className="text-xl text-slate-300 mb-8 font-medium">You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!</p>
+              <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">Level Complete!</h2>
+              <p className="text-base md:text-xl text-slate-300 mb-4 md:mb-8 font-medium">You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!</p>
               {level < FINAL_LEVEL_ID ? (
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                  <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-4 px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
+                  <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
                     START LEVEL {level + 1}
                   </button>
-                  <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-4 px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                  <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
                     Main Menu
                   </button>
                 </div>
@@ -573,18 +617,18 @@ export default function App() {
 
           {gameState === "gameover" && (
             <div className="w-full flex flex-col items-center md:items-start">
-              <h2 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600 drop-shadow-md">Game Over!</h2>
-              <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50 mb-8 w-full text-center md:text-left">
-                <p className="text-xl text-slate-300 mb-2 font-bold">
+              <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600 drop-shadow-md">Game Over!</h2>
+              <div className="bg-slate-900/50 p-3 md:p-6 rounded-2xl border border-slate-700/50 mb-4 md:mb-8 w-full text-center md:text-left">
+                <p className="text-base md:text-xl text-slate-300 mb-2 font-bold">
                   {misses >= STRIKES_ALLOWED ? "You got 3 strikes!" : questionIndex >= shuffledQuestions.length - 1 ? "Ran out of questions!" : "The board filled up!"}
                 </p>
-                <p className="text-3xl text-cyan-400 font-black mt-4">Final Points: {totalScore}</p>
+                <p className="text-2xl md:text-3xl text-cyan-400 font-black mt-2 md:mt-4">Final Points: {totalScore}</p>
               </div>
               <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-4 px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
+                <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
                   RESTART LEVEL {level}
                 </button>
-                <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-4 px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
                   Main Menu
                 </button>
               </div>

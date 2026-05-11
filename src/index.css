@@ -6,11 +6,117 @@ html,
 body,
 #root {
   min-width: 320px;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
 }
 
 body {
   margin: 0;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+.menu-panel {
+  max-height: calc(100dvh - 1rem);
+  overflow: hidden;
+}
+
+.level-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.level-card {
+  min-height: 4.25rem;
+  border-radius: 0.75rem;
+  border-width: 1px;
+  padding: 0.65rem;
+  text-align: left;
+  font-weight: 900;
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+
+.menu-small-button {
+  border: 1px solid rgb(100 116 139 / 0.7);
+  border-radius: 0.65rem;
+  background: rgb(51 65 85 / 0.95);
+  color: white;
+  font-weight: 900;
+  padding: 0.55rem 0.8rem;
+  line-height: 1;
+}
+
+.game-board,
+.game-board-width,
+.game-controls {
+  width: min(300px, 82vw, calc((100dvh - 300px) * 0.625));
+  min-width: 180px;
+}
+
+.mobile-control-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  border: 1px solid rgb(71 85 105);
+  border-radius: 0.65rem;
+  background: rgb(51 65 85);
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 900;
+  box-shadow: 0 10px 20px rgb(0 0 0 / 0.25);
+}
+
+.mobile-control-button:active {
+  background: rgb(71 85 105);
+}
+
+.answer-button {
+  min-height: 2.55rem;
+  padding: 0.6rem 0.75rem;
+}
+
+@media (min-width: 520px) {
+  .level-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 768px) {
+  .game-board,
+  .game-board-width,
+  .game-controls {
+    width: min(320px, 34vw, calc((100dvh - 90px) * 0.625));
+  }
+}
+
+@media (max-height: 720px) {
+  .game-board,
+  .game-board-width,
+  .game-controls {
+    width: min(260px, 80vw, calc((100dvh - 355px) * 0.625));
+  }
+
+  .level-card {
+    min-height: 3.7rem;
+    padding: 0.5rem;
+  }
+
+  .mobile-control-button {
+    height: 2.25rem;
+  }
+
+  .answer-button {
+    min-height: 2.25rem;
+    padding: 0.42rem 0.65rem;
+    line-height: 1.15;
+  }
 }
 
 @keyframes gradientBG {
