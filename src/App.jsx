@@ -5,7 +5,9 @@ import {
   BOARD_WIDTH,
   FRUITS,
   LEVEL_CONFIG,
+  LEVELS,
   POINTS,
+  PROGRESS_STORAGE_KEY,
   STRIKES_ALLOWED,
   TETROMINOES,
   WIN_SCORE_TARGET,
@@ -18,13 +20,22 @@ import {
   shuffleArray,
 } from "./game/board";
 
-const LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
+const FINAL_LEVEL_ID = LEVELS.at(-1).id;
+
+const readSavedProgress = () => {
+  try {
+    const saved = Number.parseInt(localStorage.getItem(PROGRESS_STORAGE_KEY), 10);
+    return Number.isFinite(saved) ? Math.min(Math.max(saved, 1), FINAL_LEVEL_ID) : 1;
+  } catch {
+    return 1;
+  }
+};
 
 export default function App() {
   const [gameState, setGameState] = useState("start");
   const [level, setLevel] = useState(1);
-  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(1);
+  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(readSavedProgress);
   const [board, setBoard] = useState(createEmptyBoard());
   const [activePiece, setActivePiece] = useState(null);
 
@@ -48,6 +59,10 @@ export default function App() {
   useEffect(() => {
     stateRef.current = { board, activePiece, gameState, isControllable, pendingBlocks };
   }, [board, activePiece, gameState, isControllable, pendingBlocks]);
+
+  useEffect(() => {
+    localStorage.setItem(PROGRESS_STORAGE_KEY, String(maxUnlockedLevel));
+  }, [maxUnlockedLevel]);
 
   // -------------------------------------------------------------------------
   // Piece lifecycle
@@ -219,7 +234,7 @@ export default function App() {
         setGameState("gameover");
       } else if (projectedScore >= WIN_SCORE_TARGET) {
         setGameState("level_win");
-        if (level < 8) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
+        if (level < FINAL_LEVEL_ID) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
       } else if (stateRef.current.pendingBlocks > 0) {
         spawnPiece(stateRef.current.isControllable);
       } else if (questionIndex >= shuffledQuestions.length - 1) {
@@ -332,9 +347,10 @@ export default function App() {
       setQuestionsAnsweredThisLevel((answered) => answered + 1);
       setFeedback(`Correct! +${POINTS.CORRECT_ANSWER} Pts. ${blocksToDrop > 1 ? "Prepare for 2 Blocks!" : "You have control."}`);
     } else {
+      const correctAnswer = question.options[question.answer];
       setMisses((count) => count + 1);
-      setLastCorrectAnswer(question.options[question.answer]);
-      setFeedback("Wrong! Stone block incoming!");
+      setLastCorrectAnswer(correctAnswer);
+      setFeedback(`Wrong! The answer was ${correctAnswer}. Stone block incoming!`);
     }
 
     setGameState("transition");
@@ -362,6 +378,7 @@ export default function App() {
   }
 
   const currentQuestion = shuffledQuestions[questionIndex];
+  const currentLevel = LEVELS.find((item) => item.id === level) || LEVELS[0];
 
   return (
     <div className="min-h-screen animated-bg text-slate-100 font-sans flex flex-col items-center p-4 overflow-x-hidden">
@@ -409,43 +426,76 @@ export default function App() {
         <main className="w-full md:w-1/2 flex flex-col items-center md:items-start p-6 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-3xl shadow-2xl min-h-[350px] justify-center text-center md:text-left relative animate-float z-10">
           {gameState !== "start" && (
             <div className="absolute top-4 right-4 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-xs font-black px-4 py-1.5 rounded-full shadow-lg border border-white/20">
-              LEVEL {level}
+              LEVEL {level}: {currentLevel.name}
             </div>
           )}
 
           {gameState === "start" && (
             <div className="flex flex-col items-center md:items-start w-full">
               <h1 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
-              <div className="text-slate-300 mb-8 leading-relaxed space-y-3 text-sm md:text-base font-medium">
-                <p className="text-xl">Reach <strong className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{WIN_SCORE_TARGET} points</strong> to advance!</p>
-                <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 shadow-inner">
-                  <ul className="space-y-2 text-left">
-                    <li>Correct Answer: <strong className="text-green-400">+10 Pts</strong></li>
-                    <li>Fruit Bomb: <strong className="text-yellow-400">+50 Pts</strong></li>
-                    <li>Match 5 Colors: <strong className="text-blue-400">+30 Pts</strong></li>
-                    <li>Clear a Full Line: <strong className="text-purple-400">+100 Pts</strong></li>
-                  </ul>
+              <div className="text-slate-300 mb-8 leading-relaxed space-y-4 text-sm md:text-base font-medium">
+                <p className="text-xl">Answer fast, place smart, and reach <strong className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.4)]">{WIN_SCORE_TARGET} points</strong> to beat each level.</p>
+                <div className="grid gap-3">
+                  <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 shadow-inner text-left">
+                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-3">How to Play</h2>
+                    <ul className="space-y-2">
+                      <li>Answer correctly to earn a block you can move and rotate.</li>
+                      <li>Connect 5 same-color blocks touching up, down, left, or right to blast them for points.</li>
+                      <li>Fill a full row like Tetris to clear the whole line.</li>
+                      <li>Fruit blocks explode nearby blocks after they land.</li>
+                      <li>Wrong answers reveal the correct answer, then drop a stone block you cannot control.</li>
+                    </ul>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-left">
+                    <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 shadow-inner">
+                      <h2 className="text-white font-black uppercase tracking-widest text-xs mb-3">Points</h2>
+                      <ul className="space-y-2">
+                        <li>Correct answer: <strong className="text-green-400">+10</strong></li>
+                        <li>Fruit blast: <strong className="text-yellow-400">+50</strong></li>
+                        <li>5-color blast: <strong className="text-blue-400">+30</strong></li>
+                        <li>Full line: <strong className="text-purple-400">+100</strong></li>
+                      </ul>
+                    </div>
+                    <div className="bg-slate-900/50 p-4 rounded-xl border border-red-500/40 shadow-inner">
+                      <h2 className="text-red-200 font-black uppercase tracking-widest text-xs mb-3">Watch Out</h2>
+                      <ul className="space-y-2">
+                        <li>3 wrong answers ends the run.</li>
+                        <li>Blocks touching the top ends the run.</li>
+                        <li>Stone blocks only clear with lines or fruit.</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <p className="text-cyan-200 border-l-4 border-cyan-400 pl-3 text-left">
+                    Progress saves on this device. Highest unlocked level: <strong>{maxUnlockedLevel}</strong>.
+                  </p>
                 </div>
-                <p className="text-red-300 border-l-4 border-red-500 pl-3 text-left">
-                  <strong>BE CAREFUL:</strong> Wrong answers drop uncontrollable <strong className="text-slate-400">STONE BLOCKS</strong>.
-                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button type="button" onClick={() => setMaxUnlockedLevel(FINAL_LEVEL_ID)} className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-2.5 px-4 rounded-lg shadow-lg transition-transform hover:scale-105">
+                    Unlock All Levels
+                  </button>
+                  <button type="button" onClick={() => setMaxUnlockedLevel(1)} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2.5 px-4 rounded-lg shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                    Reset Progress
+                  </button>
+                </div>
               </div>
 
               <h2 className="text-xl font-bold mb-4 text-white drop-shadow-md">Select Level</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 w-full max-w-2xl">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
                 {LEVELS.map((item) => (
                   <button
-                    key={item}
+                    key={item.id}
                     type="button"
-                    disabled={item > maxUnlockedLevel}
-                    onClick={() => startLevel(item)}
-                    className={`font-black py-4 rounded-xl transition-all border ${
-                      item <= maxUnlockedLevel
-                        ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:scale-105 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] border-white/20"
+                    disabled={item.id > maxUnlockedLevel}
+                    onClick={() => startLevel(item.id)}
+                    className={`text-left font-black p-4 rounded-xl transition-all border min-h-[96px] ${
+                      item.id <= maxUnlockedLevel
+                        ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:scale-[1.02] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] border-white/20"
                         : "bg-slate-800 text-slate-500 cursor-not-allowed border-slate-700/50"
                     }`}
                   >
-                    {item <= maxUnlockedLevel ? `Lv ${item}` : "Locked"}
+                    <span className="block text-xs uppercase tracking-widest opacity-80">{item.id <= maxUnlockedLevel ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}</span>
+                    <span className="block text-xl mt-1">{item.name}</span>
+                    <span className="block text-sm mt-1 font-semibold opacity-80">{item.theme}</span>
                   </button>
                 ))}
               </div>
@@ -500,8 +550,8 @@ export default function App() {
           {gameState === "level_win" && (
             <div className="w-full flex flex-col items-center md:items-start">
               <h2 className="text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">Level Complete!</h2>
-              <p className="text-xl text-slate-300 mb-8 font-medium">You reached {WIN_SCORE_TARGET} points on Level {level}!</p>
-              {level < 8 ? (
+              <p className="text-xl text-slate-300 mb-8 font-medium">You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!</p>
+              {level < FINAL_LEVEL_ID ? (
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                   <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-4 px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
                     START LEVEL {level + 1}

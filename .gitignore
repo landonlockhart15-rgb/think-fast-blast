@@ -13,6 +13,7 @@ dist
 dist-ssr
 *.local
 *-verification.png
+*-updated-menu.png
 
 # Editor directories and files
 .vscode/*
