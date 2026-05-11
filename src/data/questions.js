@@ -427,7 +427,7 @@ export const LEVEL_10_QUESTIONS = [
   { q: "What is the next prime number after 11?", options: ["12", "13", "15", "17"], answer: 1 },
   { q: "Which civilization used hieroglyphics?", options: ["Ancient Egyptians", "Vikings", "Aztecs", "Romans"], answer: 0 },
   { q: "What is the freezing point of water in Kelvin?", options: ["0 K", "100 K", "273 K", "373 K"], answer: 2 },
-  { q: "Which sentence is written in first person?", options: ["I ran home.", "She ran home.", "They ran home.", "Landon ran home."], answer: 0 },
+  { q: "Which sentence is written in first person?", options: ["I ran home.", "She ran home.", "They ran home.", "Jordan ran home."], answer: 0 },
   { q: "What is the least common multiple of 6 and 8?", options: ["12", "18", "24", "48"], answer: 2 },
   { q: "Which scientist is associated with evolution by natural selection?", options: ["Charles Darwin", "Isaac Newton", "Galileo Galilei", "Nikola Tesla"], answer: 0 },
   { q: "What is the capital of Thailand?", options: ["Bangkok", "Hanoi", "Seoul", "Jakarta"], answer: 0 },
