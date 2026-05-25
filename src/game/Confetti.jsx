@@ -45,8 +45,6 @@ export default function Confetti({ active }) {
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      let finished = true;
-
       for (let i = 0; i < particleCount; i++) {
         const p = particles[i];
         p.tiltAngle += p.tiltAngleIncremental;
@@ -62,11 +60,6 @@ export default function Confetti({ active }) {
         ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
         ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
         ctx.stroke();
-
-        // If even one particle is on screen, animation is not finished
-        if (p.y < canvas.height) {
-          finished = false;
-        }
 
         // Recycle particles that hit the bottom
         if (p.y > canvas.height) {

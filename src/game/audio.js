@@ -1,7 +1,9 @@
 // Web Audio API Retro Synthesizer for ThinkFastBlast
-// Programmatically generates game sound effects without external audio files.
+// Programmatically generates game sound effects and background arpeggios.
 
 let audioCtx = null;
+let arpeggiatorInterval = null;
+let currentArpNote = 0;
 
 const initAudio = () => {
   if (!audioCtx) {
@@ -9,6 +11,67 @@ const initAudio = () => {
   }
   if (audioCtx.state === "suspended") {
     audioCtx.resume();
+  }
+};
+
+export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1) => {
+  stopArpeggiator();
+  initAudio();
+  if (!audioCtx) return;
+
+  const intervalMs = (60 / bpm) * 1000 / 2; // eighth notes
+  
+  // Scales: minor and major chord progressions
+  const minorScale = [130.81, 155.56, 196.00, 233.08, 261.63, 311.13, 392.00, 466.16]; // C3 minor chord tones
+  const majorScale = [130.81, 164.81, 196.00, 246.94, 261.63, 329.63, 392.00, 493.88]; // C3 major chord tones
+  const scale = scaleType === "minor" ? minorScale : majorScale;
+
+  arpeggiatorInterval = setInterval(() => {
+    try {
+      if (audioCtx.state === "suspended") return;
+      const now = audioCtx.currentTime;
+      
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const filter = audioCtx.createBiquadFilter();
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.type = "triangle";
+
+      // Melodic arpeggio pattern: 0 -> 2 -> 4 -> 6 -> 7 -> 5 -> 3 -> 1
+      const pattern = [0, 2, 4, 6, 7, 5, 3, 1];
+      const noteIndex = pattern[currentArpNote % pattern.length];
+      const freq = scale[noteIndex];
+
+      osc.frequency.setValueAtTime(freq, now);
+
+      // Low-pass filter sweeps open as danger (intensity) increases
+      const cutoff = 180 + intensity * 700;
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(cutoff, now);
+
+      // Volume adjusts subtly based on intensity (keeps it atmospheric)
+      const volume = 0.012 + intensity * 0.015;
+      gain.gain.setValueAtTime(volume, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + (intervalMs / 1000) * 0.85);
+
+      osc.start(now);
+      osc.stop(now + (intervalMs / 1000) * 0.85);
+
+      currentArpNote += 1;
+    } catch (e) {
+      console.warn("Arpeggiator note fail: ", e);
+    }
+  }, intervalMs);
+};
+
+export const stopArpeggiator = () => {
+  if (arpeggiatorInterval) {
+    clearInterval(arpeggiatorInterval);
+    arpeggiatorInterval = null;
   }
 };
 
@@ -60,7 +123,7 @@ export const playSFX = (type, comboCount = 0) => {
       }
       
       case "rotate": {
-        // Short clean pitch sweep
+        // Short clean sweep
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
@@ -79,7 +142,7 @@ export const playSFX = (type, comboCount = 0) => {
       }
       
       case "drop": {
-        // Quick high pitch pop click
+        // Quick high pitch click
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.connect(gain);
@@ -137,7 +200,7 @@ export const playSFX = (type, comboCount = 0) => {
       }
       
       case "explosion": {
-        // White noise explosion for fruit bombs
+        // White noise explosion for fruit bombs / catalyst bombs
         const bufferSize = audioCtx.sampleRate * 0.45;
         const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
         const data = buffer.getChannelData(0);
