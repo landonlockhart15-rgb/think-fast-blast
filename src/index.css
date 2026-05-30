@@ -141,58 +141,50 @@ button {
   animation: float 4s ease-in-out infinite;
 }
 
+/* Screen shake on line clears/explosions */
 @keyframes shake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
-  40%, 60% { transform: translate3d(3px, 0, 0); }
+  0%, 100% { transform: translate(0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate(-4px, 2px); }
+  20%, 40%, 60%, 80% { transform: translate(4px, -2px); }
 }
-
 .animate-shake {
-  animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+  animation: shake 0.30s ease-in-out;
 }
 
-.ghost-block {
-  opacity: 0.35 !important;
-  border: 2px dashed rgba(255, 255, 255, 0.65) !important;
-  background-size: auto;
-  box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.2);
+/* Floating points/combo text drift */
+@keyframes floatUp {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-48px) scale(0.85); opacity: 0; }
+}
+.animate-float-text {
+  animation: floatUp 0.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* Cyberpunk Neon Glow Theme Colors */
-.cyberpunk-cyan {
-  background-color: #06b6d4 !important;
-  box-shadow: 0 0 12px #06b6d4, inset 0 0 6px rgba(255,255,255,0.6) !important;
+/* Pulsing glows for hyper/combo blocks */
+@keyframes pulseGlowTnt {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(239, 68, 68, 0.7); filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.5)); }
+  50% { box-shadow: inset 0 0 15px rgba(239, 68, 68, 1); filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9)); }
 }
-.cyberpunk-yellow {
-  background-color: #eab308 !important;
-  box-shadow: 0 0 12px #eab308, inset 0 0 6px rgba(255,255,255,0.6) !important;
-}
-.cyberpunk-purple {
-  background-color: #a855f7 !important;
-  box-shadow: 0 0 12px #a855f7, inset 0 0 6px rgba(255,255,255,0.6) !important;
-}
-.cyberpunk-orange {
-  background-color: #f97316 !important;
-  box-shadow: 0 0 12px #f97316, inset 0 0 6px rgba(255,255,255,0.6) !important;
-}
-.cyberpunk-blue {
-  background-color: #3b82f6 !important;
-  box-shadow: 0 0 12px #3b82f6, inset 0 0 6px rgba(255,255,255,0.6) !important;
-}
-.cyberpunk-green {
-  background-color: #22c55e !important;
-  box-shadow: 0 0 12px #22c55e, inset 0 0 6px rgba(255,255,255,0.6) !important;
-}
-.cyberpunk-red {
-  background-color: #ef4444 !important;
-  box-shadow: 0 0 12px #ef4444, inset 0 0 6px rgba(255,255,255,0.6) !important;
+.animate-glow-tnt {
+  animation: pulseGlowTnt 1s ease-in-out infinite;
+  border: 2px solid #f87171 !important;
 }
 
-/* Retro Matrix Green Theme Colors */
-.retro-green-block {
-  background-color: #022c22 !important;
-  border: 1.5px solid #10b981 !important;
-  box-shadow: 0 0 6px #047857, inset 0 0 4px #022c22 !important;
+@keyframes pulseGlowLightning {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(250, 204, 21, 0.7); filter: drop-shadow(0 0 2px rgba(250, 204, 21, 0.5)); }
+  50% { box-shadow: inset 0 0 15px rgba(250, 204, 21, 1); filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.9)); }
+}
+.animate-glow-lightning {
+  animation: pulseGlowLightning 1s ease-in-out infinite;
+  border: 2px solid #fef08a !important;
+}
+
+@keyframes pulseGlowDrill {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(245, 158, 11, 0.7); filter: drop-shadow(0 0 2px rgba(245, 158, 11, 0.5)); }
+  50% { box-shadow: inset 0 0 15px rgba(245, 158, 11, 1); filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.9)); }
+}
+.animate-glow-drill {
+  animation: pulseGlowDrill 1s ease-in-out infinite;
+  border: 2px solid #fbbf24 !important;
 }
 

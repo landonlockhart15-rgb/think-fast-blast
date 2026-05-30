@@ -435,6 +435,156 @@ export const LEVEL_10_QUESTIONS = [
   { q: "What is 3 to the power of 4?", options: ["12", "27", "64", "81"], answer: 3 },
 ];
 
+export const LEVEL_11_QUESTIONS = [
+  { q: "Which economist wrote 'The Wealth of Nations'?", options: ["John Maynard Keynes", "Adam Smith", "Milton Friedman", "Karl Marx"], answer: 1 },
+  { q: "What is the largest internal organ in the human body?", options: ["Liver", "Lung", "Kidney", "Pancreas"], answer: 0 },
+  { q: "Which treaty ended World War I?", options: ["Treaty of Paris", "Treaty of Versailles", "Treaty of Ghent", "Treaty of Utrecht"], answer: 1 },
+  { q: "What does GDP measure?", options: ["Population growth", "National production", "Trade deficit only", "Tax revenue only"], answer: 1 },
+  { q: "Which novel begins with the line 'Call me Ishmael'?", options: ["Moby-Dick", "The Great Gatsby", "Dracula", "The Odyssey"], answer: 0 },
+  { q: "Which planet has the shortest day?", options: ["Earth", "Mars", "Jupiter", "Mercury"], answer: 2 },
+  { q: "In statistics, what does the median represent?", options: ["Most common value", "Middle value", "Highest value", "Average value"], answer: 1 },
+  { q: "What is the main function of red blood cells?", options: ["Fight infection", "Carry oxygen", "Clot blood", "Digest protein"], answer: 1 },
+  { q: "Which U.S. amendment abolished slavery?", options: ["First", "Thirteenth", "Fifteenth", "Nineteenth"], answer: 1 },
+  { q: "What is a priori knowledge based on?", options: ["Experience", "Reasoning alone", "Observation only", "Poll results"], answer: 1 },
+  { q: "Which composer wrote the 'Moonlight Sonata'?", options: ["Mozart", "Beethoven", "Bach", "Chopin"], answer: 1 },
+  { q: "What is the SI unit of electric current?", options: ["Volt", "Ohm", "Ampere", "Watt"], answer: 2 },
+];
+
+export const LEVEL_12_QUESTIONS = [
+  { q: "What molecule carries genetic instructions in most living organisms?", options: ["ATP", "DNA", "Insulin", "Keratin"], answer: 1 },
+  { q: "Which particle has a negative electric charge?", options: ["Proton", "Neutron", "Electron", "Photon"], answer: 2 },
+  { q: "What is the second law of thermodynamics mainly about?", options: ["Gravity", "Entropy", "Magnetism", "Velocity"], answer: 1 },
+  { q: "Which organelle packages proteins for transport?", options: ["Golgi apparatus", "Ribosome", "Nucleus", "Lysosome"], answer: 0 },
+  { q: "What type of bond shares electron pairs?", options: ["Ionic", "Covalent", "Metallic", "Hydrogen"], answer: 1 },
+  { q: "Which star is closest to Earth after the Sun?", options: ["Sirius", "Proxima Centauri", "Vega", "Betelgeuse"], answer: 1 },
+  { q: "What is the pH of a neutral solution at room temperature?", options: ["0", "5", "7", "14"], answer: 2 },
+  { q: "Which process produces gametes?", options: ["Mitosis", "Meiosis", "Osmosis", "Fermentation"], answer: 1 },
+  { q: "What is the most abundant element in the universe?", options: ["Oxygen", "Carbon", "Hydrogen", "Helium"], answer: 2 },
+  { q: "What does RNA usually contain instead of thymine?", options: ["Uracil", "Guanine", "Cytosine", "Adenine"], answer: 0 },
+  { q: "Which force holds atomic nuclei together?", options: ["Weak nuclear", "Strong nuclear", "Friction", "Tension"], answer: 1 },
+  { q: "What is the name for a change in allele frequency over time?", options: ["Evolution", "Transcription", "Equilibrium", "Translation"], answer: 0 },
+];
+
+export const LEVEL_13_QUESTIONS = [
+  { q: "Which empire was ruled from Constantinople?", options: ["Byzantine Empire", "Mongol Empire", "Aztec Empire", "British Empire"], answer: 0 },
+  { q: "Who led the Haitian Revolution?", options: ["Simon Bolivar", "Toussaint Louverture", "Benito Juarez", "Jose Marti"], answer: 1 },
+  { q: "What year did the Berlin Wall fall?", options: ["1979", "1989", "1991", "1999"], answer: 1 },
+  { q: "Which document limited English royal power in 1215?", options: ["Magna Carta", "Bill of Rights", "Mayflower Compact", "Domesday Book"], answer: 0 },
+  { q: "Which civilization built Machu Picchu?", options: ["Maya", "Inca", "Aztec", "Olmec"], answer: 1 },
+  { q: "Who was the first emperor of Rome?", options: ["Julius Caesar", "Augustus", "Nero", "Trajan"], answer: 1 },
+  { q: "Which conflict was fought from 1950 to 1953?", options: ["Korean War", "Vietnam War", "Crimean War", "Gulf War"], answer: 0 },
+  { q: "What was the main purpose of the Silk Road?", options: ["Voting", "Trade", "Tax collection", "Military drafting"], answer: 1 },
+  { q: "Which revolution began in 1789?", options: ["Russian Revolution", "French Revolution", "American Revolution", "Industrial Revolution"], answer: 1 },
+  { q: "Who wrote the Communist Manifesto with Friedrich Engels?", options: ["Vladimir Lenin", "Karl Marx", "Leon Trotsky", "Max Weber"], answer: 1 },
+  { q: "Which ancient city was buried by Mount Vesuvius?", options: ["Pompeii", "Troy", "Carthage", "Sparta"], answer: 0 },
+  { q: "What did the 19th Amendment protect in the U.S.?", options: ["Women's voting rights", "Income tax", "Prohibition", "Direct election of senators"], answer: 0 },
+];
+
+export const LEVEL_14_QUESTIONS = [
+  { q: "What is the next number: 2, 3, 5, 8, 13?", options: ["18", "21", "23", "26"], answer: 1 },
+  { q: "If all Bloops are Razzies and some Razzies are Lumes, what must be true?", options: ["All Bloops are Lumes", "Some Lumes are Bloops", "All Bloops are Razzies", "No Razzies are Bloops"], answer: 2 },
+  { q: "What is 17 squared?", options: ["269", "279", "289", "299"], answer: 2 },
+  { q: "Which number is irrational?", options: ["0.75", "Square root of 2", "4", "22/11"], answer: 1 },
+  { q: "A fair coin is flipped 3 times. How many possible outcomes exist?", options: ["3", "6", "8", "9"], answer: 2 },
+  { q: "What is the derivative of x squared?", options: ["x", "2x", "x cubed", "2"], answer: 1 },
+  { q: "Which shape has the most sides?", options: ["Nonagon", "Heptagon", "Octagon", "Hexagon"], answer: 0 },
+  { q: "What is 20% of 350?", options: ["35", "60", "70", "85"], answer: 2 },
+  { q: "If A implies B and A is true, what follows?", options: ["B is true", "B is false", "A is false", "Nothing"], answer: 0 },
+  { q: "What is the least common multiple of 9 and 12?", options: ["18", "24", "36", "108"], answer: 2 },
+  { q: "What is log base 10 of 1000?", options: ["2", "3", "10", "100"], answer: 1 },
+  { q: "Which data structure is first-in, first-out?", options: ["Stack", "Queue", "Tree", "Graph"], answer: 1 },
+];
+
+export const LEVEL_15_QUESTIONS = [
+  { q: "Who painted 'Guernica'?", options: ["Pablo Picasso", "Salvador Dali", "Frida Kahlo", "Henri Matisse"], answer: 0 },
+  { q: "Which author wrote 'Beloved'?", options: ["Toni Morrison", "Maya Angelou", "Zora Neale Hurston", "Alice Walker"], answer: 0 },
+  { q: "What musical period came after the Baroque era?", options: ["Romantic", "Classical", "Modern", "Medieval"], answer: 1 },
+  { q: "Which film director made 'Jaws' and 'E.T.'?", options: ["George Lucas", "Steven Spielberg", "James Cameron", "Martin Scorsese"], answer: 1 },
+  { q: "What is the Japanese art of paper folding called?", options: ["Ikebana", "Origami", "Haiku", "Kabuki"], answer: 1 },
+  { q: "Which poet wrote 'The Raven'?", options: ["Walt Whitman", "Edgar Allan Poe", "Emily Dickinson", "Robert Frost"], answer: 1 },
+  { q: "What is chiaroscuro?", options: ["Light-dark contrast", "A dance form", "A drum pattern", "A pottery glaze"], answer: 0 },
+  { q: "Which artist is associated with Campbell's soup cans?", options: ["Andy Warhol", "Jackson Pollock", "Georgia O'Keeffe", "Roy Lichtenstein"], answer: 0 },
+  { q: "Which novel features Atticus Finch?", options: ["The Catcher in the Rye", "To Kill a Mockingbird", "The Grapes of Wrath", "Invisible Man"], answer: 1 },
+  { q: "What genre is Miles Davis strongly associated with?", options: ["Jazz", "Country", "Punk", "Disco"], answer: 0 },
+  { q: "Which Shakespeare play features Iago?", options: ["Macbeth", "Hamlet", "Othello", "King Lear"], answer: 2 },
+  { q: "What is a triptych?", options: ["Three-panel artwork", "A short poem", "A brass instrument", "A dance step"], answer: 0 },
+];
+
+export const LEVEL_16_QUESTIONS = [
+  { q: "What does HTTPS add to HTTP?", options: ["Compression", "Encryption", "Animation", "Indexing"], answer: 1 },
+  { q: "Which language is primarily used for styling web pages?", options: ["HTML", "CSS", "SQL", "JSON"], answer: 1 },
+  { q: "What is a DNS server used for?", options: ["Name resolution", "Image editing", "Password cracking", "Video rendering"], answer: 0 },
+  { q: "Which algorithmic complexity grows fastest?", options: ["O(n)", "O(log n)", "O(n squared)", "O(1)"], answer: 2 },
+  { q: "What does RAM temporarily store?", options: ["Active data", "Only images", "Printed pages", "External backups"], answer: 0 },
+  { q: "What is two-factor authentication?", options: ["Two passwords", "Two independent proofs", "Two usernames", "Two browsers"], answer: 1 },
+  { q: "Which database command retrieves rows?", options: ["SELECT", "PUSH", "RENDER", "MERGE"], answer: 0 },
+  { q: "What is an API?", options: ["A hardware chip", "A programming interface", "A file extension", "A screen type"], answer: 1 },
+  { q: "Which version control system uses commits and branches?", options: ["Git", "SMTP", "BIOS", "SASS"], answer: 0 },
+  { q: "What does CPU stand for?", options: ["Central Processing Unit", "Core Program Utility", "Computer Power Unit", "Central Pixel Unit"], answer: 0 },
+  { q: "Which attack floods a service with traffic?", options: ["DDoS", "Phishing", "Spoofing", "Salting"], answer: 0 },
+  { q: "What is JSON commonly used for?", options: ["Data exchange", "Image compression", "Sound synthesis", "Circuit cooling"], answer: 0 },
+];
+
+export const LEVEL_17_QUESTIONS = [
+  { q: "Which country has the largest population?", options: ["United States", "Indonesia", "India", "Brazil"], answer: 2 },
+  { q: "What is the capital of Kenya?", options: ["Nairobi", "Accra", "Kigali", "Lusaka"], answer: 0 },
+  { q: "Which river flows through Baghdad?", options: ["Nile", "Tigris", "Danube", "Seine"], answer: 1 },
+  { q: "What mountain range separates Europe and Asia in Russia?", options: ["Alps", "Urals", "Andes", "Atlas"], answer: 1 },
+  { q: "Which sea lies between Europe and Africa?", options: ["Caribbean", "Mediterranean", "Baltic", "Arabian"], answer: 1 },
+  { q: "What is the capital of Argentina?", options: ["Santiago", "Montevideo", "Buenos Aires", "Lima"], answer: 2 },
+  { q: "Which country is both an island and a continent?", options: ["Australia", "Greenland", "Japan", "Madagascar"], answer: 0 },
+  { q: "What is the official currency of the eurozone?", options: ["Pound", "Euro", "Franc", "Lira"], answer: 1 },
+  { q: "Which desert covers much of Botswana and Namibia?", options: ["Kalahari", "Sahara", "Gobi", "Atacama"], answer: 0 },
+  { q: "What is the capital of Vietnam?", options: ["Ho Chi Minh City", "Hanoi", "Da Nang", "Hue"], answer: 1 },
+  { q: "Which ocean borders California?", options: ["Atlantic", "Pacific", "Indian", "Arctic"], answer: 1 },
+  { q: "Which country controls the island of Greenland?", options: ["Canada", "Denmark", "Norway", "Iceland"], answer: 1 },
+];
+
+export const LEVEL_18_QUESTIONS = [
+  { q: "Which word means 'short-lived'?", options: ["Ephemeral", "Endemic", "Euphoric", "Empirical"], answer: 0 },
+  { q: "What is an oxymoron?", options: ["Contradictory phrase", "Rhymed couplet", "False name", "Long speech"], answer: 0 },
+  { q: "Which sentence uses 'affect' correctly?", options: ["The affect was loud", "Rain can affect traffic", "She had an affect of pie", "Affect is the result"], answer: 1 },
+  { q: "What does 'ubiquitous' mean?", options: ["Everywhere", "Rare", "Hidden", "Ancient"], answer: 0 },
+  { q: "Which is a gerund?", options: ["Run", "Running", "Ran", "Runs"], answer: 1 },
+  { q: "What is the opposite of 'mitigate'?", options: ["Ease", "Worsen", "Measure", "Explain"], answer: 1 },
+  { q: "Which word is closest to 'laconic'?", options: ["Brief", "Loud", "Decorated", "Careless"], answer: 0 },
+  { q: "What is a semicolon often used to join?", options: ["Related independent clauses", "Two adjectives only", "A noun and verb", "Two prefixes"], answer: 0 },
+  { q: "Which phrase is redundant?", options: ["Advance warning", "Final result", "Past history", "All of these"], answer: 3 },
+  { q: "What does 'ambivalent' mean?", options: ["Mixed feelings", "Very certain", "Hostile", "Unclear writing"], answer: 0 },
+  { q: "Which word is an antonym of 'opaque'?", options: ["Cloudy", "Transparent", "Heavy", "Silent"], answer: 1 },
+  { q: "What is metonymy?", options: ["Substitution by association", "Extreme exaggeration", "Repeated first sounds", "A direct comparison"], answer: 0 },
+];
+
+export const LEVEL_19_QUESTIONS = [
+  { q: "Which scientist proposed continental drift?", options: ["Alfred Wegener", "James Hutton", "Niels Bohr", "Gregor Mendel"], answer: 0 },
+  { q: "Which philosopher wrote 'Critique of Pure Reason'?", options: ["Immanuel Kant", "David Hume", "Plato", "John Locke"], answer: 0 },
+  { q: "What is the capital of Kazakhstan?", options: ["Almaty", "Astana", "Bishkek", "Tashkent"], answer: 1 },
+  { q: "Which blood type is known as the universal red-cell donor?", options: ["AB+", "A-", "O-", "B+"], answer: 2 },
+  { q: "What is the Heisenberg uncertainty principle about?", options: ["Position and momentum", "Heat and mass", "Sound and light", "Charge and spin only"], answer: 0 },
+  { q: "Which empire used satraps as provincial governors?", options: ["Achaemenid Persian", "Mali", "Qing", "Inca"], answer: 0 },
+  { q: "What is the square root of 2025?", options: ["35", "40", "45", "55"], answer: 2 },
+  { q: "Which element has atomic number 26?", options: ["Iron", "Nickel", "Cobalt", "Zinc"], answer: 0 },
+  { q: "What is the main language family of Hindi?", options: ["Sino-Tibetan", "Indo-European", "Afroasiatic", "Dravidian"], answer: 1 },
+  { q: "Which city hosted the first modern Olympics in 1896?", options: ["Paris", "Athens", "London", "Rome"], answer: 1 },
+  { q: "What is a fiscal policy tool?", options: ["Government spending", "Plate tectonics", "DNS caching", "Quantum spin"], answer: 0 },
+  { q: "Which novel features the character Raskolnikov?", options: ["Crime and Punishment", "Anna Karenina", "War and Peace", "The Trial"], answer: 0 },
+];
+
+export const LEVEL_20_QUESTIONS = [
+  { q: "Which theorem states no complete consistent system can prove all arithmetic truths?", options: ["Godel's incompleteness", "Bayes' theorem", "Pythagorean theorem", "Noether's theorem"], answer: 0 },
+  { q: "Which treaty created the European Union?", options: ["Maastricht Treaty", "Lisbon Treaty", "Treaty of Rome", "Schengen Agreement"], answer: 0 },
+  { q: "What is the Krebs cycle also called?", options: ["Citric acid cycle", "Calvin cycle", "Urea cycle", "Cori cycle"], answer: 0 },
+  { q: "Which literary movement is James Joyce often associated with?", options: ["Modernism", "Romanticism", "Naturalism", "Realism"], answer: 0 },
+  { q: "What is the capital of Mongolia?", options: ["Ulaanbaatar", "Astana", "Vientiane", "Thimphu"], answer: 0 },
+  { q: "Which protocol translates domain names to IP addresses?", options: ["DNS", "FTP", "SMTP", "IMAP"], answer: 0 },
+  { q: "What is Bayesian inference used to update?", options: ["Beliefs with evidence", "Keyboard layouts", "Planetary names", "Chemical symbols"], answer: 0 },
+  { q: "Which composer wrote 'The Rite of Spring'?", options: ["Igor Stravinsky", "Claude Debussy", "Gustav Mahler", "Richard Wagner"], answer: 0 },
+  { q: "What does a catalyst do in a chemical reaction?", options: ["Lowers activation energy", "Raises atomic number", "Consumes all products", "Stops molecules moving"], answer: 0 },
+  { q: "Which empire was founded by Osman I?", options: ["Ottoman Empire", "Mughal Empire", "Safavid Empire", "Mongol Empire"], answer: 0 },
+  { q: "What is the derivative of sine x?", options: ["Cosine x", "Negative sine x", "Tangent x", "Secant x"], answer: 0 },
+  { q: "Which field studies knowledge itself?", options: ["Epistemology", "Aesthetics", "Ethology", "Paleography"], answer: 0 },
+];
+
 export const QUESTION_BANKS = {
   1: [...LEVEL_1_QUESTIONS, ...LEVEL_1_EXTRA],
   2: [...LEVEL_2_QUESTIONS, ...LEVEL_2_EXTRA],
@@ -446,4 +596,14 @@ export const QUESTION_BANKS = {
   8: [...LEVEL_8_QUESTIONS, ...LEVEL_8_EXTRA],
   9: LEVEL_9_QUESTIONS,
   10: LEVEL_10_QUESTIONS,
+  11: LEVEL_11_QUESTIONS,
+  12: LEVEL_12_QUESTIONS,
+  13: LEVEL_13_QUESTIONS,
+  14: LEVEL_14_QUESTIONS,
+  15: LEVEL_15_QUESTIONS,
+  16: LEVEL_16_QUESTIONS,
+  17: LEVEL_17_QUESTIONS,
+  18: LEVEL_18_QUESTIONS,
+  19: LEVEL_19_QUESTIONS,
+  20: LEVEL_20_QUESTIONS,
 };

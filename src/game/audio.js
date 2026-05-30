@@ -1,69 +1,252 @@
 // Web Audio API Retro Synthesizer for ThinkFastBlast
-// Programmatically generates game sound effects and background arpeggios.
+// Programmatically generates game sound effects and layered background music.
 
 let audioCtx = null;
+let masterGain = null;
+let musicGain = null;
+let sfxGain = null;
 let arpeggiatorInterval = null;
 let currentArpNote = 0;
+let audioEnabled = true;
+
+const getAudioContext = () => window.AudioContext || window.webkitAudioContext;
+
+const connectNodeChain = (...nodes) => {
+  for (let i = 0; i < nodes.length - 1; i += 1) {
+    nodes[i].connect(nodes[i + 1]);
+  }
+};
+
+const ensureGraph = () => {
+  if (!audioCtx) {
+    const AudioContext = getAudioContext();
+    audioCtx = new AudioContext();
+    masterGain = audioCtx.createGain();
+    musicGain = audioCtx.createGain();
+    sfxGain = audioCtx.createGain();
+    musicGain.gain.value = 1.2;
+    sfxGain.gain.value = 1;
+    masterGain.gain.value = 1;
+    connectNodeChain(musicGain, masterGain, audioCtx.destination);
+    connectNodeChain(sfxGain, masterGain);
+  }
+  return audioCtx;
+};
 
 const initAudio = () => {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (!audioEnabled) return null;
+  ensureGraph();
+  if (audioCtx?.state === "suspended") {
+    audioCtx.resume();
   }
-  if (audioCtx.state === "suspended") {
+  return audioCtx;
+};
+
+export const setAudioEnabled = (enabled) => {
+  audioEnabled = Boolean(enabled);
+  ensureGraph();
+  if (!audioCtx) return;
+  const target = audioEnabled ? 1 : 0;
+  masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.02);
+  if (!audioEnabled) {
+    stopArpeggiator();
+  } else if (audioCtx.state === "suspended") {
     audioCtx.resume();
   }
 };
 
-export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1) => {
+const playTone = ({
+  destination = sfxGain,
+  type = "sine",
+  frequency = 440,
+  startTime = 0,
+  duration = 0.1,
+  gain = 0.1,
+  endFrequency = null,
+  filterType = null,
+  filterFrequency = null,
+  detune = 0,
+  attack = 0.004,
+  release = 0.08,
+}) => {
+  if (!audioCtx || !destination) return;
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  if (filterType) {
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(filterFrequency ?? 800, startTime);
+    osc.connect(filter);
+    filter.connect(amp);
+  } else {
+    osc.connect(amp);
+  }
+  amp.connect(destination);
+  osc.type = type;
+  osc.detune.setValueAtTime(detune, startTime);
+  osc.frequency.setValueAtTime(frequency, startTime);
+  if (endFrequency !== null) {
+    osc.frequency.linearRampToValueAtTime(endFrequency, startTime + duration * 0.85);
+  }
+  amp.gain.setValueAtTime(0.0001, startTime);
+  amp.gain.linearRampToValueAtTime(gain, startTime + attack);
+  amp.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+  osc.start(startTime);
+  osc.stop(startTime + duration + release);
+};
+
+const playNoiseBurst = ({
+  destination = sfxGain,
+  duration = 0.2,
+  gain = 0.15,
+  filterFrequency = 1200,
+  filterDecay = 120,
+  startTime = null,
+}) => {
+  if (!audioCtx || !destination) return;
+  const now = startTime ?? audioCtx.currentTime;
+  const bufferSize = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i += 1) {
+    data[i] = Math.random() * 2 - 1;
+  }
+  const noise = audioCtx.createBufferSource();
+  const filter = audioCtx.createBiquadFilter();
+  const amp = audioCtx.createGain();
+  noise.buffer = buffer;
+  filter.type = "bandpass";
+  filter.frequency.setValueAtTime(filterFrequency, now);
+  filter.frequency.exponentialRampToValueAtTime(filterDecay, now + duration);
+  noise.connect(filter);
+  filter.connect(amp);
+  amp.connect(destination);
+  amp.gain.setValueAtTime(gain, now);
+  amp.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  noise.start(now);
+};
+
+const gameProgression = [
+  { root: 73.42, fifth: 110.0, tones: [146.83, 174.61, 220.0, 261.63], melody: [293.66, 329.63, 349.23, 392.0, 440.0] },
+  { root: 98.0, fifth: 146.83, tones: [196.0, 246.94, 293.66, 349.23], melody: [293.66, 349.23, 392.0, 440.0, 493.88] },
+  { root: 65.41, fifth: 98.0, tones: [130.81, 164.81, 196.0, 246.94], melody: [261.63, 293.66, 329.63, 392.0, 440.0] },
+  { root: 110.0, fifth: 164.81, tones: [220.0, 277.18, 329.63, 392.0], melody: [277.18, 329.63, 392.0, 440.0, 554.37] },
+];
+
+const menuProgression = [
+  { root: 65.41, fifth: 98.0, tones: [130.81, 164.81, 196.0, 246.94], melody: [261.63, 293.66, 329.63, 392.0, 440.0] },
+  { root: 73.42, fifth: 110.0, tones: [146.83, 174.61, 220.0, 261.63], melody: [293.66, 329.63, 392.0, 440.0, 523.25] },
+  { root: 82.41, fifth: 123.47, tones: [164.81, 196.0, 246.94, 293.66], melody: [329.63, 392.0, 440.0, 493.88, 587.33] },
+  { root: 98.0, fifth: 146.83, tones: [196.0, 246.94, 293.66, 349.23], melody: [392.0, 440.0, 493.88, 523.25, 659.25] },
+];
+
+const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs }) => {
+  const progression = scene === "menu" || scene === "victory" ? menuProgression : gameProgression;
+  const bar = Math.floor((step % 32) / 8);
+  const beat = step % 8;
+  const chord = progression[bar];
+  const isMajor = scaleType === "major";
+
+  if (beat === 0 || beat === 4) {
+    playTone({
+      destination: musicGain,
+      type: "triangle",
+      frequency: beat === 0 ? chord.root : chord.fifth,
+      startTime: now,
+      duration: (intervalMs / 1000) * 1.7,
+      gain: 0.08 + intensity * 0.03,
+      filterType: "lowpass",
+      filterFrequency: 160 + intensity * 120,
+    });
+  }
+
+  if (beat === 2 || beat === 5 || beat === 7) {
+    chord.tones.forEach((freq, index) => {
+      playTone({
+        destination: musicGain,
+        type: "sine",
+        frequency: freq,
+        startTime: now + index * 0.004,
+        duration: (intervalMs / 1000) * 0.85,
+        gain: 0.024 + intensity * 0.012,
+        filterType: "lowpass",
+        filterFrequency: 420 + intensity * 480,
+      });
+    });
+  }
+
+  if (beat === 1 || beat === 3 || beat === 6) {
+    const melIdx = (bar + beat) % chord.melody.length;
+    const baseFreq = chord.melody[melIdx];
+    playTone({
+      destination: musicGain,
+      type: isMajor ? "sine" : "triangle",
+      frequency: baseFreq,
+      startTime: now,
+      duration: (intervalMs / 1000) * 0.78,
+      gain: 0.018 + intensity * 0.008,
+      filterType: "lowpass",
+      filterFrequency: 900 + intensity * 1000,
+      detune: Math.sin(now * 10) * 8,
+    });
+  }
+
+  if (scene !== "menu" && (beat === 0 || beat === 2 || beat === 4 || beat === 6)) {
+    playTone({
+      destination: musicGain,
+      type: "triangle",
+      frequency: beat === 0 || beat === 4 ? chord.root / 2 : chord.root / 1.5,
+      startTime: now,
+      duration: (intervalMs / 1000) * 0.55,
+      gain: 0.04 + intensity * 0.015,
+      filterType: "lowpass",
+      filterFrequency: 120 + intensity * 90,
+    });
+  }
+
+  if (scene !== "menu" && (beat === 0 || beat === 4)) {
+    playNoiseBurst({
+      destination: musicGain,
+      duration: (intervalMs / 1000) * 0.08,
+      gain: 0.018 + intensity * 0.008,
+      filterFrequency: 4200,
+      filterDecay: 1800,
+      startTime: now,
+    });
+  }
+
+  if (beat === 0 && bar === 0) {
+    playTone({
+      destination: musicGain,
+      type: "sine",
+      frequency: scene === "menu" ? 523.25 : 659.25,
+      startTime: now,
+      duration: 0.18,
+      gain: 0.022 + intensity * 0.008,
+      filterType: "highpass",
+      filterFrequency: 300,
+    });
+  }
+};
+
+export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game") => {
+  if (!audioEnabled) return;
   stopArpeggiator();
   initAudio();
   if (!audioCtx) return;
 
-  const intervalMs = (60 / bpm) * 1000 / 2; // eighth notes
-  
-  // Scales: minor and major chord progressions
-  const minorScale = [130.81, 155.56, 196.00, 233.08, 261.63, 311.13, 392.00, 466.16]; // C3 minor chord tones
-  const majorScale = [130.81, 164.81, 196.00, 246.94, 261.63, 329.63, 392.00, 493.88]; // C3 major chord tones
-  const scale = scaleType === "minor" ? minorScale : majorScale;
+  const intervalMs = (60 / bpm) * 1000 / 2;
+  let localStep = currentArpNote;
 
   arpeggiatorInterval = setInterval(() => {
     try {
-      if (audioCtx.state === "suspended") return;
+      if (!audioCtx || audioCtx.state === "suspended" || !audioEnabled) return;
       const now = audioCtx.currentTime;
-      
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      const filter = audioCtx.createBiquadFilter();
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(audioCtx.destination);
-
-      osc.type = "triangle";
-
-      // Melodic arpeggio pattern: 0 -> 2 -> 4 -> 6 -> 7 -> 5 -> 3 -> 1
-      const pattern = [0, 2, 4, 6, 7, 5, 3, 1];
-      const noteIndex = pattern[currentArpNote % pattern.length];
-      const freq = scale[noteIndex];
-
-      osc.frequency.setValueAtTime(freq, now);
-
-      // Low-pass filter sweeps open as danger (intensity) increases
-      const cutoff = 180 + intensity * 700;
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(cutoff, now);
-
-      // Volume adjusts subtly based on intensity (keeps it atmospheric)
-      const volume = 0.012 + intensity * 0.015;
-      gain.gain.setValueAtTime(volume, now);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + (intervalMs / 1000) * 0.85);
-
-      osc.start(now);
-      osc.stop(now + (intervalMs / 1000) * 0.85);
-
-      currentArpNote += 1;
+      scheduleMusicStep({ now, step: localStep, scene, scaleType, intensity, intervalMs });
+      localStep += 1;
+      currentArpNote = localStep;
     } catch (e) {
-      console.warn("Arpeggiator note fail: ", e);
+      console.warn("Background music playback failed: ", e);
     }
   }, intervalMs);
 };
@@ -77,201 +260,253 @@ export const stopArpeggiator = () => {
 
 export const playSFX = (type, comboCount = 0) => {
   try {
+    if (!audioEnabled) return;
     initAudio();
     if (!audioCtx) return;
 
     const now = audioCtx.currentTime;
 
     switch (type) {
+      case "button": {
+        playTone({
+          frequency: 440,
+          startTime: now,
+          duration: 0.07,
+          gain: 0.045,
+          type: "triangle",
+          filterType: "highpass",
+          filterFrequency: 220,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "unlock": {
+        playTone({
+          frequency: 523.25,
+          startTime: now,
+          duration: 0.14,
+          gain: 0.08,
+          type: "triangle",
+          endFrequency: 1046.5,
+          filterType: "lowpass",
+          filterFrequency: 1200,
+          destination: sfxGain,
+        });
+        playTone({
+          frequency: 783.99,
+          startTime: now + 0.05,
+          duration: 0.16,
+          gain: 0.05,
+          type: "sine",
+          endFrequency: 1174.66,
+          filterType: "lowpass",
+          filterFrequency: 1600,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "daily": {
+        playTone({
+          frequency: 392.0,
+          startTime: now,
+          duration: 0.18,
+          gain: 0.06,
+          type: "sine",
+          endFrequency: 523.25,
+          filterType: "lowpass",
+          filterFrequency: 1300,
+          destination: sfxGain,
+        });
+        playTone({
+          frequency: 659.25,
+          startTime: now + 0.08,
+          duration: 0.16,
+          gain: 0.045,
+          type: "sine",
+          endFrequency: 783.99,
+          filterType: "highpass",
+          filterFrequency: 700,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "race_start": {
+        playNoiseBurst({
+          duration: 0.14,
+          gain: 0.08,
+          filterFrequency: 1800,
+          filterDecay: 900,
+          destination: sfxGain,
+        });
+        playTone({
+          frequency: 196.0,
+          startTime: now,
+          duration: 0.16,
+          gain: 0.08,
+          type: "triangle",
+          endFrequency: 98.0,
+          filterType: "lowpass",
+          filterFrequency: 400,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "level_start": {
+        playTone({
+          frequency: 329.63,
+          startTime: now,
+          duration: 0.12,
+          gain: 0.06,
+          type: "triangle",
+          endFrequency: 523.25,
+          filterType: "highpass",
+          filterFrequency: 280,
+          destination: sfxGain,
+        });
+        playTone({
+          frequency: 523.25,
+          startTime: now + 0.05,
+          duration: 0.12,
+          gain: 0.05,
+          type: "sine",
+          endFrequency: 783.99,
+          filterType: "highpass",
+          filterFrequency: 300,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "theme": {
+        playTone({
+          frequency: 587.33,
+          startTime: now,
+          duration: 0.18,
+          gain: 0.05,
+          type: "sine",
+          endFrequency: 932.33,
+          filterType: "lowpass",
+          filterFrequency: 1600,
+          destination: sfxGain,
+        });
+        break;
+      }
+
+      case "mutator": {
+        playNoiseBurst({
+          duration: 0.1,
+          gain: 0.045,
+          filterFrequency: 2400,
+          filterDecay: 1200,
+          destination: sfxGain,
+        });
+        playTone({
+          frequency: 110.0,
+          startTime: now,
+          duration: 0.1,
+          gain: 0.05,
+          type: "square",
+          endFrequency: 55.0,
+          filterType: "lowpass",
+          filterFrequency: 500,
+          destination: sfxGain,
+        });
+        break;
+      }
+
       case "correct": {
-        // High ascending double chime
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "sine";
-        
-        osc.frequency.setValueAtTime(523.25, now); // C5
-        osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
-        osc.frequency.setValueAtTime(783.99, now + 0.16); // G5
-        
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
-        
-        osc.start(now);
-        osc.stop(now + 0.4);
+        playTone({ frequency: 523.25, startTime: now, duration: 0.16, gain: 0.1, type: "sine", endFrequency: 659.25, destination: sfxGain });
+        playTone({ frequency: 659.25, startTime: now + 0.08, duration: 0.14, gain: 0.09, type: "sine", endFrequency: 783.99, destination: sfxGain });
+        playTone({ frequency: 783.99, startTime: now + 0.16, duration: 0.14, gain: 0.08, type: "triangle", endFrequency: 1046.5, destination: sfxGain });
         break;
       }
-      
+
       case "incorrect": {
-        // Low downward saw buzzer
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "sawtooth";
-        
-        osc.frequency.setValueAtTime(150, now);
-        osc.frequency.linearRampToValueAtTime(90, now + 0.35);
-        
-        gain.gain.setValueAtTime(0.15, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-        
-        osc.start(now);
-        osc.stop(now + 0.35);
+        playTone({ frequency: 150, startTime: now, duration: 0.35, gain: 0.14, type: "sawtooth", endFrequency: 90, destination: sfxGain });
         break;
       }
-      
+
       case "rotate": {
-        // Short clean sweep
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "triangle";
-        
-        osc.frequency.setValueAtTime(300, now);
-        osc.frequency.exponentialRampToValueAtTime(600, now + 0.08);
-        
-        gain.gain.setValueAtTime(0.08, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-        
-        osc.start(now);
-        osc.stop(now + 0.08);
+        playTone({ frequency: 300, startTime: now, duration: 0.08, gain: 0.07, type: "triangle", endFrequency: 600, destination: sfxGain });
         break;
       }
-      
+
+      case "hold": {
+        playTone({ frequency: 360, startTime: now, duration: 0.09, gain: 0.06, type: "square", endFrequency: 240, destination: sfxGain });
+        break;
+      }
+
       case "drop": {
-        // Quick high pitch click
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "sine";
-        
-        osc.frequency.setValueAtTime(800, now);
-        osc.frequency.exponentialRampToValueAtTime(200, now + 0.06);
-        
-        gain.gain.setValueAtTime(0.06, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-        
-        osc.start(now);
-        osc.stop(now + 0.06);
+        playTone({ frequency: 800, startTime: now, duration: 0.06, gain: 0.055, type: "sine", endFrequency: 200, destination: sfxGain });
         break;
       }
-      
+
       case "lock": {
-        // Deep thud
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "sine";
-        
-        osc.frequency.setValueAtTime(120, now);
-        osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
-        
-        gain.gain.setValueAtTime(0.18, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        
-        osc.start(now);
-        osc.stop(now + 0.15);
+        playTone({ frequency: 120, startTime: now, duration: 0.15, gain: 0.16, type: "sine", endFrequency: 40, destination: sfxGain });
         break;
       }
-      
+
       case "match": {
-        // Pop sound with pitch raising depending on combo multiplier
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.type = "sine";
-        
         const baseFreq = 440 + comboCount * 110;
-        osc.frequency.setValueAtTime(baseFreq, now);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq * 2, now + 0.18);
-        
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-        
-        osc.start(now);
-        osc.stop(now + 0.18);
-        break;
-      }
-      
-      case "explosion": {
-        // White noise explosion for fruit bombs / catalyst bombs
-        const bufferSize = audioCtx.sampleRate * 0.45;
-        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-          data[i] = Math.random() * 2 - 1;
+        playTone({ frequency: baseFreq, startTime: now, duration: 0.18, gain: 0.11, type: "sine", endFrequency: baseFreq * 2, destination: sfxGain });
+        if (comboCount >= 1) {
+          playTone({ frequency: baseFreq * 1.5, startTime: now + 0.04, duration: 0.16, gain: 0.08, type: "triangle", endFrequency: baseFreq * 2.5, destination: sfxGain });
         }
-        
-        const noise = audioCtx.createBufferSource();
-        noise.buffer = buffer;
-        
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = "lowpass";
-        filter.frequency.setValueAtTime(600, now);
-        filter.frequency.exponentialRampToValueAtTime(20, now + 0.45);
-        
-        const gain = audioCtx.createGain();
-        gain.gain.setValueAtTime(0.25, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-        
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(audioCtx.destination);
-        
-        noise.start(now);
         break;
       }
-      
+
+      case "streak": {
+        playTone({ frequency: 659.25, startTime: now, duration: 0.1, gain: 0.055, type: "triangle", endFrequency: 880.0, destination: sfxGain });
+        playTone({ frequency: 880.0, startTime: now + 0.06, duration: 0.11, gain: 0.05, type: "sine", endFrequency: 1174.66, destination: sfxGain });
+        break;
+      }
+
+      case "explosion": {
+        playNoiseBurst({ duration: 0.45, gain: 0.22, filterFrequency: 800, filterDecay: 30, destination: sfxGain });
+        playTone({ frequency: 140, startTime: now, duration: 0.28, gain: 0.09, type: "triangle", endFrequency: 55, destination: sfxGain });
+        break;
+      }
+
       case "level_win": {
-        // Retro victory fanfare
-        const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50]; // C major notes
+        const notes = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99, 1046.5];
         notes.forEach((freq, index) => {
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.type = "triangle";
-          
-          osc.frequency.setValueAtTime(freq, now + index * 0.1);
-          gain.gain.setValueAtTime(0.1, now + index * 0.1);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.1 + 0.25);
-          
-          osc.start(now + index * 0.1);
-          osc.stop(now + index * 0.1 + 0.25);
+          playTone({
+            frequency: freq,
+            startTime: now + index * 0.09,
+            duration: 0.22,
+            gain: 0.09,
+            type: "triangle",
+            endFrequency: freq * 1.12,
+            destination: sfxGain,
+          });
         });
         break;
       }
-      
+
       case "gameover": {
-        // Descending sad minor melody
-        const notes = [392.00, 349.23, 311.13, 261.63, 233.08, 196.00]; // G-F-Eb-C-Bb-G
+        const notes = [392.0, 349.23, 311.13, 261.63, 233.08, 196.0];
         notes.forEach((freq, index) => {
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.type = "triangle";
-          
-          osc.frequency.setValueAtTime(freq, now + index * 0.15);
-          gain.gain.setValueAtTime(0.12, now + index * 0.15);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.15 + 0.35);
-          
-          osc.start(now + index * 0.15);
-          osc.stop(now + index * 0.15 + 0.35);
+          playTone({
+            frequency: freq,
+            startTime: now + index * 0.14,
+            duration: 0.32,
+            gain: 0.1,
+            type: "triangle",
+            endFrequency: freq * 0.92,
+            destination: sfxGain,
+          });
         });
         break;
       }
-      
+
       default:
         break;
     }
   } catch (e) {
-    console.warn("Audio Context playback failed or blocked: ", e);
+    console.warn("Audio playback failed or blocked: ", e);
   }
 };
