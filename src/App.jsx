@@ -228,14 +228,11 @@ export default function App() {
       }
     };
 
-    const nextBoard = board.map((row) => [...row]);
-
     // 1. Process TNT detonators (3x3 blast)
     for (let y = 0; y < BOARD_HEIGHT; y += 1) {
       for (let x = 0; x < BOARD_WIDTH; x += 1) {
         if (board[y][x]?.isTNT) {
           hasTnt = true;
-          nextBoard[y][x].isTNT = false; // Detonate once
           for (let dy = -1; dy <= 1; dy += 1) {
             for (let dx = -1; dx <= 1; dx += 1) {
               const cy = y + dy;
@@ -255,7 +252,6 @@ export default function App() {
       for (let x = 0; x < BOARD_WIDTH; x += 1) {
         if (board[y][x]?.isDrill) {
           hasDrill = true;
-          nextBoard[y][x].isDrill = false; // Use once
           for (let dy = 0; dy <= 3; dy += 1) {
             const cy = y + dy;
             if (cy >= 0 && cy < BOARD_HEIGHT) {
@@ -272,7 +268,7 @@ export default function App() {
       for (let x = 0; x < BOARD_WIDTH; x += 1) {
         if (board[y][x]?.isLightning) {
           hasLightning = true;
-          nextBoard[y][x].isLightning = false; // Zap once
+          addCellToClear(y, x); // clear the lightning block itself
 
           const colorCounts = {};
           for (let by = 0; by < BOARD_HEIGHT; by += 1) {
@@ -378,7 +374,6 @@ export default function App() {
       if (hasLightning) addFloatingText("ZAP! ⚡", anchor.x, anchor.y - 1);
 
       triggerShake();
-      setBoard(nextBoard);
 
       queueMicrotask(() => setExplodingCells(cellsToClear));
 
