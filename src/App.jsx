@@ -11,6 +11,7 @@ import {
   STRIKES_ALLOWED,
   TETROMINOES,
   WIN_SCORE_TARGET,
+  TRIVIA_FACTS,
 } from "./data/constants";
 import { QUESTION_BANKS } from "./data/questions";
 import {
@@ -19,6 +20,59 @@ import {
   rotateShapeClockwise,
   shuffleArray,
 } from "./game/board";
+import {
+  playSFX,
+  startArpeggiator,
+  stopArpeggiator,
+  setAudioEnabled,
+} from "./game/audio";
+import Confetti from "./game/Confetti";
+
+const STATS_STORAGE_KEY = "think-fast-blast-stats";
+
+const SHOP_ITEMS = [
+  { id: "theme_cyberpunk", name: "Cyberpunk Neon Theme", desc: "Adds glowing retro-future styling and cyber shadows to blocks", cost: 100, type: "theme" },
+  { id: "theme_retro", name: "Retro Green Theme", desc: "Classic Matrix-style digital terminal grid with binary elements", cost: 120, type: "theme" },
+  { id: "catalyst_bomb", name: "Catalyst Bomb Block", desc: "Enables rare 💣 block spawns that clear 3x3 grids when they land", cost: 150, type: "block" },
+  { id: "catalyst_wildcard", name: "Wildcard Block", desc: "Enables rare ✨ block spawns that connect and clear any adjacent colors", cost: 200, type: "block" },
+];
+
+const getThemeCellColor = (baseColor, themeName) => {
+  if (themeName === "theme_retro") {
+    return "retro-green-block";
+  }
+  if (themeName === "theme_cyberpunk") {
+    const cyberpunkMap = {
+      "bg-cyan-500": "cyberpunk-cyan",
+      "bg-yellow-400": "cyberpunk-yellow",
+      "bg-purple-500": "cyberpunk-purple",
+      "bg-orange-500": "cyberpunk-orange",
+      "bg-blue-500": "cyberpunk-blue",
+      "bg-green-500": "cyberpunk-green",
+      "bg-red-500": "cyberpunk-red",
+    };
+    return cyberpunkMap[baseColor] || baseColor;
+  }
+  return baseColor;
+};
+
+const readSavedStats = () => {
+  try {
+    const saved = localStorage.getItem(STATS_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) : {};
+    return {
+      highScores: parsed.highScores || {},
+      totalGames: parsed.totalGames || 0,
+      totalCorrect: parsed.totalCorrect || 0,
+      totalQuestions: parsed.totalQuestions || 0,
+      glitches: parsed.glitches || 0,
+      unlockedItems: parsed.unlockedItems || [],
+      activeTheme: parsed.activeTheme || "default"
+    };
+  } catch {
+    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
+  }
+};
 
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
 const FINAL_LEVEL_ID = LEVELS.at(-1).id;
@@ -32,9 +86,400 @@ const readSavedProgress = () => {
   }
 };
 
+// -------------------------------------------------------------------------
+// Interactive Previews for the Shop Cards
+// -------------------------------------------------------------------------
+function StoreItemPreview({ itemId }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let frameId;
+    let time = 0;
+    const width = (canvas.width = 120);
+    const height = (canvas.height = 120);
+
+    // Animation variables
+    let bombTimer = 0;
+    let bombY = -15;
+    let explosionRadius = 0;
+    let particles = [];
+
+    let wildcardTimer = 0;
+    let wildcardY = -15;
+    let starBurstParticles = [];
+
+    // Theme variables
+    const themeBlocks = [
+      { x: 1, y: 3, rawColor: "#06b6d4" },
+      { x: 2, y: 3, rawColor: "#06b6d4" },
+      { x: 1, y: 2, rawColor: "#a855f7" },
+      { x: 0, y: 3, rawColor: "#eab308" },
+    ];
+    let themeFallY = -15;
+
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#0f172a"; // dark card background
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw grid lines
+      ctx.strokeStyle = "rgba(51, 65, 85, 0.4)";
+      ctx.lineWidth = 1;
+      const cellSize = 22;
+      const gridCols = 5;
+      const gridRows = 5;
+      const startX = (width - gridCols * cellSize) / 2;
+      const startY = (height - gridRows * cellSize) / 2;
+
+      for (let r = 0; r <= gridRows; r++) {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY + r * cellSize);
+        ctx.lineTo(startX + gridCols * cellSize, startY + r * cellSize);
+        ctx.stroke();
+      }
+      for (let c = 0; c <= gridCols; c++) {
+        ctx.beginPath();
+        ctx.moveTo(startX + c * cellSize, startY);
+        ctx.lineTo(startX + c * cellSize, startY + gridRows * cellSize);
+        ctx.stroke();
+      }
+
+      time += 1;
+
+      if (itemId === "theme_cyberpunk") {
+        themeBlocks.forEach((b) => {
+          const bx = startX + b.x * cellSize + 1.5;
+          const by = startY + b.y * cellSize + 1.5;
+          const size = cellSize - 3;
+          ctx.fillStyle = b.rawColor;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = b.rawColor;
+          ctx.fillRect(bx, by, size, size);
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bx, by, size, size);
+          ctx.shadowBlur = 0; // reset
+        });
+
+        themeFallY += 0.55;
+        if (themeFallY > 1) {
+          themeFallY = -3;
+        }
+
+        const fallCol = 2;
+        const blockColor = "#f97316";
+        const shape = [[1, 0], [1, 1]];
+        shape.forEach((row, dy) => {
+          row.forEach((val, dx) => {
+            if (val) {
+              const gridY = themeFallY + dy;
+              if (gridY >= 0 && gridY < gridRows) {
+                const bx = startX + (fallCol + dx) * cellSize + 1.5;
+                const by = startY + gridY * cellSize + 1.5;
+                const size = cellSize - 3;
+                ctx.fillStyle = blockColor;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = blockColor;
+                ctx.fillRect(bx, by, size, size);
+                ctx.strokeStyle = "#fff";
+                ctx.strokeRect(bx, by, size, size);
+                ctx.shadowBlur = 0;
+              }
+            }
+          });
+        });
+      } 
+      else if (itemId === "theme_retro") {
+        themeBlocks.forEach((b) => {
+          const bx = startX + b.x * cellSize + 1.5;
+          const by = startY + b.y * cellSize + 1.5;
+          const size = cellSize - 3;
+          ctx.fillStyle = "#022c22";
+          ctx.strokeStyle = "#10b981";
+          ctx.lineWidth = 1.5;
+          ctx.fillRect(bx, by, size, size);
+          ctx.strokeRect(bx, by, size, size);
+
+          ctx.fillStyle = "#34d399";
+          ctx.font = "bold 9px monospace";
+          ctx.fillText(((b.x + b.y) % 2 === 0) ? "0" : "1", bx + 7, by + size - 4);
+        });
+
+        ctx.fillStyle = "rgba(16, 185, 129, 0.4)";
+        ctx.font = "9px monospace";
+        for (let i = 0; i < gridCols; i++) {
+          const charY = ((time * 1.5 + i * 20) % (gridRows * cellSize)) + startY;
+          ctx.fillText(Math.random() < 0.5 ? "0" : "1", startX + i * cellSize + 8, charY);
+        }
+      } 
+      else if (itemId === "catalyst_bomb") {
+        bombTimer += 1;
+        
+        const targetBlocks = [
+          { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 },
+          { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }
+        ];
+
+        if (bombTimer < 80) {
+          bombY += 0.95;
+          if (bombY > startY + 3 * cellSize) {
+            bombY = startY + 3 * cellSize;
+          }
+
+          targetBlocks.forEach((b) => {
+            const bx = startX + b.x * cellSize + 1.5;
+            const by = startY + b.y * cellSize + 1.5;
+            const size = cellSize - 3;
+            ctx.fillStyle = "#475569";
+            ctx.fillRect(bx, by, size, size);
+          });
+
+          const bbx = startX + 2 * cellSize + 1.5;
+          ctx.fillStyle = bombTimer % 10 < 5 ? "#ef4444" : "#b91c1c";
+          const bsize = cellSize - 3;
+          ctx.fillRect(bbx, bombY + 1.5, bsize, bsize);
+          ctx.strokeStyle = "#fca5a5";
+          ctx.strokeRect(bbx, bombY + 1.5, bsize, bsize);
+          ctx.fillStyle = "#fff";
+          ctx.font = "12px sans-serif";
+          ctx.fillText("💣", bbx + 3, bombY + 15);
+        } 
+        else if (bombTimer >= 80 && bombTimer < 110) {
+          explosionRadius += 2.2;
+          
+          ctx.beginPath();
+          ctx.arc(startX + 2.5 * cellSize, startY + 3.5 * cellSize, explosionRadius, 0, Math.PI * 2);
+          const grad = ctx.createRadialGradient(
+            startX + 2.5 * cellSize, startY + 3.5 * cellSize, 2,
+            startX + 2.5 * cellSize, startY + 3.5 * cellSize, Math.max(1, explosionRadius)
+          );
+          grad.addColorStop(0, "rgba(255,255,255,1)");
+          grad.addColorStop(0.3, "rgba(253,224,71,0.9)");
+          grad.addColorStop(0.7, "rgba(239,68,68,0.7)");
+          grad.addColorStop(1, "rgba(239,68,68,0)");
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          if (bombTimer === 80) {
+            particles = Array.from({ length: 25 }, () => ({
+              x: startX + 2.5 * cellSize,
+              y: startY + 3.5 * cellSize,
+              vx: (Math.random() - 0.5) * 5,
+              vy: (Math.random() - 0.5) * 5,
+              size: Math.random() * 4 + 1.5,
+              color: Math.random() < 0.6 ? "#f97316" : "#ef4444",
+              alpha: 1
+            }));
+          }
+
+          particles.forEach((p) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha -= 0.035;
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.alpha);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+          });
+        } 
+        else {
+          bombTimer = 0;
+          bombY = startY - cellSize;
+          explosionRadius = 0;
+          particles = [];
+        }
+      } 
+      else if (itemId === "catalyst_wildcard") {
+        wildcardTimer += 1;
+
+        const wildblocks = [
+          { x: 1, y: 4, color: "#3b82f6" },
+          { x: 3, y: 4, color: "#22c55e" },
+          { x: 2, y: 4, color: "#eab308" }
+        ];
+
+        if (wildcardTimer < 75) {
+          wildcardY += 0.95;
+          if (wildcardY > startY + 4 * cellSize) {
+            wildcardY = startY + 4 * cellSize;
+          }
+
+          const b1 = wildblocks[0];
+          ctx.fillStyle = b1.color;
+          ctx.fillRect(startX + b1.x * cellSize + 1.5, startY + b1.y * cellSize + 1.5, cellSize - 3, cellSize - 3);
+
+          const b2 = wildblocks[1];
+          ctx.fillStyle = b2.color;
+          ctx.fillRect(startX + b2.x * cellSize + 1.5, startY + b2.y * cellSize + 1.5, cellSize - 3, cellSize - 3);
+
+          const wX = startX + 2 * cellSize + 1.5;
+          const wY = wildcardY + 1.5;
+          const size = cellSize - 3;
+
+          const hue = (time * 6) % 360;
+          ctx.fillStyle = `hsl(${hue}, 85%, 60%)`;
+          ctx.fillRect(wX, wY, size, size);
+          ctx.strokeStyle = "#ffffff";
+          ctx.strokeRect(wX, wY, size, size);
+          ctx.fillStyle = "#fff";
+          ctx.font = "12px sans-serif";
+          ctx.fillText("✨", wX + 3, wildcardY + 15);
+        } 
+        else if (wildcardTimer >= 75 && wildcardTimer < 115) {
+          const matchColor = wildcardTimer % 15 < 7 ? "#fef08a" : "#fbbf24";
+          
+          wildblocks.forEach((b) => {
+            const bx = startX + b.x * cellSize + 1.5;
+            const by = startY + b.y * cellSize + 1.5;
+            const size = cellSize - 3;
+            ctx.fillStyle = matchColor;
+            ctx.fillRect(bx, by, size, size);
+            ctx.strokeStyle = "#fff";
+            ctx.strokeRect(bx, by, size, size);
+          });
+
+          if (wildcardTimer === 75) {
+            starBurstParticles = Array.from({ length: 18 }, () => ({
+              x: startX + 2.5 * cellSize,
+              y: startY + 4.5 * cellSize,
+              vx: (Math.random() - 0.5) * 4.2,
+              vy: (Math.random() - 0.5) * 4.2 - 1.2,
+              size: Math.random() * 3 + 1,
+              color: `hsl(${Math.random() * 360}, 90%, 65%)`,
+              alpha: 1
+            }));
+          }
+
+          starBurstParticles.forEach((p) => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha -= 0.03;
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = Math.max(0, p.alpha);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+          });
+        } 
+        else {
+          wildcardTimer = 0;
+          wildcardY = startY - cellSize;
+          starBurstParticles = [];
+        }
+      }
+
+      frameId = requestAnimationFrame(render);
+    };
+
+    render();
+
+    return () => cancelAnimationFrame(frameId);
+  }, [itemId]);
+
+  return (
+    <div className="w-[120px] h-[120px] shrink-0 border border-slate-700/60 rounded-xl overflow-hidden shadow-inner bg-slate-900 flex items-center justify-center relative">
+      <canvas ref={canvasRef} className="w-[120px] h-[120px]" />
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// Connecting Sparks Background Canvas for loading screens
+// -------------------------------------------------------------------------
+function BrainSparksCanvas() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationFrameId;
+    let width = (canvas.width = canvas.offsetWidth);
+    let height = (canvas.height = canvas.offsetHeight);
+
+    const particles = Array.from({ length: 30 }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: (Math.random() - 0.5) * 1.5,
+      size: Math.random() * 2 + 1,
+      color: Math.random() < 0.5 ? "#22d3ee" : "#a855f7",
+    }));
+
+    const resizeHandler = () => {
+      if (!canvas) return;
+      width = canvas.width = canvas.offsetWidth;
+      height = canvas.height = canvas.offsetHeight;
+    };
+    window.addEventListener("resize", resizeHandler);
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.4)";
+      ctx.fillRect(0, 0, width, height);
+
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < 0) p.x = width;
+        if (p.x > width) p.x = 0;
+        if (p.y < 0) p.y = height;
+        if (p.y > height) p.y = 0;
+
+        particles.forEach((other) => {
+          const dx = p.x - other.x;
+          const dy = p.y - other.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 60) {
+            ctx.strokeStyle = `rgba(168, 85, 247, ${0.12 * (1 - dist / 60)})`;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(other.x, other.y);
+            ctx.stroke();
+          }
+        });
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = p.color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", resizeHandler);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none rounded-2xl" />;
+}
+
+// -------------------------------------------------------------------------
+// Main App Component
+// -------------------------------------------------------------------------
 export default function App() {
   const [gameState, setGameState] = useState("start");
-  const [showInstructions, setShowInstructions] = useState(true);
+  const [menuTab, setMenuTab] = useState("levels");
   const [level, setLevel] = useState(1);
   const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(readSavedProgress);
   const [board, setBoard] = useState(createEmptyBoard());
@@ -51,7 +496,7 @@ export default function App() {
   const [feedback, setFeedback] = useState("");
   const [explodingCells, setExplodingCells] = useState([]);
 
-  // --- REDESIGN STATES ---
+  // Redesign States
   const [correctStreak, setCorrectStreak] = useState(0);
   const [floatingTexts, setFloatingTexts] = useState([]);
   const [shake, setShake] = useState(false);
@@ -59,6 +504,21 @@ export default function App() {
   const [questionsSinceLastRise, setQuestionsSinceLastRise] = useState(0);
   const [recoveryTimer, setRecoveryTimer] = useState(4);
   const [questionStartTime, setQuestionStartTime] = useState(0);
+
+  // Stats and Shop Integration States
+  const [stats, setStats] = useState(readSavedStats);
+  const [introCountdown, setIntroCountdown] = useState(3);
+  const [randomFact, setRandomFact] = useState("");
+
+  // Audio Toggle State
+  const [audioOn, setAudioOn] = useState(() => {
+    try {
+      const saved = localStorage.getItem("think-fast-blast-audio-enabled");
+      return saved !== null ? saved === "true" : true;
+    } catch {
+      return true;
+    }
+  });
 
   // Timers and keyboard events need the newest state without being rebuilt on
   // every render. This ref mirrors the live game state for those callbacks.
@@ -95,6 +555,16 @@ export default function App() {
     localStorage.setItem(PROGRESS_STORAGE_KEY, String(maxUnlockedLevel));
   }, [maxUnlockedLevel]);
 
+  // Handle programmatic audio enabled state
+  useEffect(() => {
+    setAudioEnabled(audioOn);
+    try {
+      localStorage.setItem("think-fast-blast-audio-enabled", String(audioOn));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [audioOn]);
+
   // Trigger screen shake
   const triggerShake = () => {
     setShake(true);
@@ -102,13 +572,13 @@ export default function App() {
   };
 
   // Add floating point/combo popup feedback
-  const addFloatingText = (text, x = 4, y = 8) => {
+  const addFloatingText = useCallback((text, x = 4, y = 8) => {
     const id = Math.random().toString(36).substring(2, 9);
     setFloatingTexts((prev) => [...prev, { id, text, x, y }]);
     setTimeout(() => {
       setFloatingTexts((prev) => prev.filter((t) => t.id !== id));
     }, 900);
-  };
+  }, []);
 
   // Helper to generate a Power-up block
   const makePowerUp = (piece, streak) => {
@@ -142,296 +612,54 @@ export default function App() {
     return piece;
   };
 
-  // -------------------------------------------------------------------------
-  // Piece lifecycle
-  // -------------------------------------------------------------------------
-  const spawnQuizPiece = useCallback(() => {
-    const activeLevel = stateRef.current.level;
-    const pieceBase = Math.random() < 0.15 ? randomItem(FRUITS) : randomItem(TETROMINOES);
-    const width = pieceBase.shape[0].length;
-    const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
-
-    let color = pieceBase.color;
-    let emoji = pieceBase.emoji || "";
-    let isSlime = false;
-
-    // Apply Sticky Slime blocks hazard to level 5 & 6
-    if ((activeLevel === 5 || activeLevel === 6) && Math.random() < 0.35) {
-      isSlime = true;
-      color = "bg-emerald-700 border-2 border-emerald-400";
-      emoji = "🦠";
-    }
-
-    const newPiece = {
-      ...pieceBase,
-      color,
-      emoji,
-      isSlime,
-      x,
-      y: 0,
-    };
-
-    if (checkCollision(newPiece, stateRef.current.board)) {
-      setGameState("gameover");
-      return;
-    }
-
-    setActivePiece(newPiece);
-    setQuestionStartTime(Date.now());
-  }, []);
-
-  const lockPiece = useCallback(() => {
-    const { activePiece: piece, board: currentBoard } = stateRef.current;
-    if (!piece) return;
-
-    const nextBoard = currentBoard.map((row) => [...row]);
-    piece.shape.forEach((row, y) => {
-      row.forEach((value, x) => {
-        if (!value) return;
-        const boardY = piece.y + y;
-        const boardX = piece.x + x;
-        if (boardY >= 0) {
-          nextBoard[boardY][boardX] = {
-            color: piece.color,
-            isFruit: piece.isFruit || false,
-            emoji: piece.emoji || "",
-            isStone: piece.isStone || false,
-            isTNT: piece.isTNT || false,
-            isDrill: piece.isDrill || false,
-            isLightning: piece.isLightning || false,
-            isSlime: piece.isSlime || false,
-          };
-        }
+  // Hoisted callbacks to ensure they are declared before useEffect bindings
+  // Memoized game end handler to save stats, high scores, glitches and trigger audio
+  const handleGameEnd = useCallback((isWin, finalScore) => {
+    if (isWin) {
+      playSFX("level_win");
+      setGameState("level_win");
+      if (level < FINAL_LEVEL_ID) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
+      
+      const glitchesEarned = Math.floor(finalScore / 10) + (level * 10);
+      setStats((prevStats) => {
+        const updatedHighScores = { ...prevStats.highScores };
+        const previousBest = updatedHighScores[level] || 0;
+        updatedHighScores[level] = Math.max(previousBest, finalScore);
+        
+        const newStats = {
+          ...prevStats,
+          highScores: updatedHighScores,
+          totalGames: prevStats.totalGames + 1,
+          totalCorrect: prevStats.totalCorrect + questionsAnsweredThisLevel,
+          totalQuestions: prevStats.totalQuestions + (questionIndex + 1),
+          glitches: (prevStats.glitches || 0) + glitchesEarned
+        };
+        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+        return newStats;
       });
-    });
-
-    setBoard(nextBoard);
-    setActivePiece(null);
-    setGameState("resolving");
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Board resolver: fruit blasts, line clears, color matches, gravity, win/loss
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (gameState !== "resolving") return undefined;
-
-    let pointsEarned = 0;
-    const cellsToClear = [];
-    let hasTnt = false;
-    let hasDrill = false;
-    let hasLightning = false;
-
-    const addCellToClear = (y, x) => {
-      if (!cellsToClear.some((cell) => cell.y === y && cell.x === x)) {
-        cellsToClear.push({ y, x });
-      }
-    };
-
-    // 1. Process TNT detonators (3x3 blast)
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      for (let x = 0; x < BOARD_WIDTH; x += 1) {
-        if (board[y][x]?.isTNT) {
-          hasTnt = true;
-          for (let dy = -1; dy <= 1; dy += 1) {
-            for (let dx = -1; dx <= 1; dx += 1) {
-              const cy = y + dy;
-              const cx = x + dx;
-              if (cy >= 0 && cy < BOARD_HEIGHT && cx >= 0 && cx < BOARD_WIDTH) {
-                if (board[cy][cx] !== null) addCellToClear(cy, cx);
-              }
-            }
-          }
-          pointsEarned += 80;
-        }
-      }
+      setFeedback(`Victory! Earned ${glitchesEarned} Glitches.`);
+    } else {
+      playSFX("gameover");
+      setGameState("gameover");
+      
+      const glitchesEarned = Math.max(1, Math.floor(finalScore / 20) + (level * 2));
+      setStats((prevStats) => {
+        const newStats = {
+          ...prevStats,
+          totalGames: prevStats.totalGames + 1,
+          totalCorrect: prevStats.totalCorrect + questionsAnsweredThisLevel,
+          totalQuestions: prevStats.totalQuestions + (questionIndex + 1),
+          glitches: (prevStats.glitches || 0) + glitchesEarned
+        };
+        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+        return newStats;
+      });
+      setFeedback(`Game Over! Earned ${glitchesEarned} Glitches.`);
     }
+  }, [level, questionsAnsweredThisLevel, questionIndex]);
 
-    // 2. Process Drills (clear cell and 3 cells below)
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      for (let x = 0; x < BOARD_WIDTH; x += 1) {
-        if (board[y][x]?.isDrill) {
-          hasDrill = true;
-          for (let dy = 0; dy <= 3; dy += 1) {
-            const cy = y + dy;
-            if (cy >= 0 && cy < BOARD_HEIGHT) {
-              if (board[cy][x] !== null) addCellToClear(cy, x);
-            }
-          }
-          pointsEarned += 60;
-        }
-      }
-    }
-
-    // 3. Process Lightning (zap all blocks of the most common color)
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      for (let x = 0; x < BOARD_WIDTH; x += 1) {
-        if (board[y][x]?.isLightning) {
-          hasLightning = true;
-          addCellToClear(y, x); // clear the lightning block itself
-
-          const colorCounts = {};
-          for (let by = 0; by < BOARD_HEIGHT; by += 1) {
-            for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
-              const cell = board[by][bx];
-              if (cell && !cell.isStone && !cell.isFruit && cell.color) {
-                colorCounts[cell.color] = (colorCounts[cell.color] || 0) + 1;
-              }
-            }
-          }
-
-          let targetColor = null;
-          let maxCount = 0;
-          Object.entries(colorCounts).forEach(([color, count]) => {
-            if (count > maxCount) {
-              maxCount = count;
-              targetColor = color;
-            }
-          });
-
-          if (targetColor) {
-            for (let by = 0; by < BOARD_HEIGHT; by += 1) {
-              for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
-                if (board[by][bx]?.color === targetColor) {
-                  addCellToClear(by, bx);
-                }
-              }
-            }
-            pointsEarned += maxCount * 15;
-          }
-        }
-      }
-    }
-
-    // 4. Fruit bombs clear themselves and their four cardinal neighbors.
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      for (let x = 0; x < BOARD_WIDTH; x += 1) {
-        if (!board[y][x]?.isFruit) continue;
-        [{ y, x }, { y: y + 1, x }, { y: y - 1, x }, { y, x: x + 1 }, { y, x: x - 1 }]
-          .forEach((cell) => {
-            const insideBoard =
-              cell.y >= 0 && cell.y < BOARD_HEIGHT && cell.x >= 0 && cell.x < BOARD_WIDTH;
-            if (insideBoard && board[cell.y][cell.x] !== null) addCellToClear(cell.y, cell.x);
-          });
-        pointsEarned += POINTS.FRUIT_BOMB;
-      }
-    }
-
-    // 5. Standard full-line clear.
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      if (!board[y].every((cell) => cell !== null)) continue;
-      for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear(y, x);
-      pointsEarned += POINTS.LINE_CLEAR;
-    }
-
-    // 6. Connected components of 5+ same-colored normal blocks clear together.
-    const visited = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(false));
-    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      for (let x = 0; x < BOARD_WIDTH; x += 1) {
-        const startCell = board[y][x];
-        if (!startCell || startCell.isFruit || startCell.isStone || visited[y][x]) continue;
-
-        const color = startCell.color;
-        const component = [];
-        const stack = [{ y, x }];
-
-        while (stack.length > 0) {
-          const current = stack.pop();
-          const cy = current.y;
-          const cx = current.x;
-          const cell = board[cy]?.[cx];
-          if (
-            cy < 0 ||
-            cy >= BOARD_HEIGHT ||
-            cx < 0 ||
-            cx >= BOARD_WIDTH ||
-            visited[cy][cx] ||
-            cell === null ||
-            cell.color !== color ||
-            cell.isFruit ||
-            cell.isStone
-          ) {
-            continue;
-          }
-
-          visited[cy][cx] = true;
-          component.push({ y: cy, x: cx });
-          stack.push({ y: cy + 1, x: cx }, { y: cy - 1, x: cx }, { y: cy, x: cx + 1 }, { y: cy, x: cx - 1 });
-        }
-
-        if (component.length >= 5) {
-          pointsEarned += POINTS.COLOR_MATCH + (component.length - 5) * 5;
-          component.forEach((cell) => addCellToClear(cell.y, cell.x));
-        }
-      }
-    }
-
-    if (cellsToClear.length > 0) {
-      const anchor = cellsToClear[0];
-      if (pointsEarned > 0) addFloatingText(`+${pointsEarned}`, anchor.x, anchor.y);
-      if (hasTnt) addFloatingText("TNT BLAST! 💣", anchor.x, anchor.y - 1);
-      if (hasDrill) addFloatingText("DRILL BLAST! 🌀", anchor.x, anchor.y - 1);
-      if (hasLightning) addFloatingText("ZAP! ⚡", anchor.x, anchor.y - 1);
-
-      triggerShake();
-
-      queueMicrotask(() => setExplodingCells(cellsToClear));
-
-      const timer = setTimeout(() => {
-        const afterClearBoard = board.map((row) => [...row]);
-        cellsToClear.forEach((cell) => {
-          afterClearBoard[cell.y][cell.x] = null;
-        });
-
-        // Gravity compacts each column downward.
-        for (let x = 0; x < BOARD_WIDTH; x += 1) {
-          let writeY = BOARD_HEIGHT - 1;
-          for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
-            if (afterClearBoard[y][x] === null) continue;
-            if (writeY !== y) {
-              afterClearBoard[writeY][x] = afterClearBoard[y][x];
-              afterClearBoard[y][x] = null;
-            }
-            writeY -= 1;
-          }
-        }
-
-        setBoard(afterClearBoard);
-        setExplodingCells([]);
-        setTotalScore((prev) => prev + pointsEarned);
-
-        // Check if floor rise is triggered
-        if ((level === 9 || level === 10) && stateRef.current.questionsSinceLastRise === 0) {
-          triggerFloorRise(afterClearBoard);
-        }
-      }, 400);
-
-      return () => clearTimeout(timer);
-    }
-
-    queueMicrotask(() => {
-      const projectedScore = totalScore + pointsEarned;
-      if (misses >= STRIKES_ALLOWED) {
-        setGameState("gameover");
-      } else if (projectedScore >= WIN_SCORE_TARGET) {
-        setGameState("level_win");
-        if (level < FINAL_LEVEL_ID) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
-      } else if (questionIndex >= shuffledQuestions.length - 1) {
-        setGameState("gameover");
-      } else {
-        setQuestionIndex((prev) => prev + 1);
-        setGameState("quiz");
-        spawnQuizPiece();
-      }
-    });
-
-    return undefined;
-  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece]);
-
-  // -------------------------------------------------------------------------
-  // Floor rising hazard (Level 9 & 10)
-  // -------------------------------------------------------------------------
-  const triggerFloorRise = (currentBoard) => {
+  // Floor rising hazard
+  const triggerFloorRise = useCallback((currentBoard) => {
     const newRow = Array(BOARD_WIDTH).fill(null);
     const gap1 = Math.floor(Math.random() * BOARD_WIDTH);
     let gap2 = Math.floor(Math.random() * BOARD_WIDTH);
@@ -447,9 +675,8 @@ export default function App() {
       }
     }
 
-    // Verify row 0 has no blocks before shifting
     if (currentBoard[0].some((cell) => cell !== null)) {
-      setGameState("gameover");
+      handleGameEnd(false, totalScore);
       return;
     }
 
@@ -458,14 +685,14 @@ export default function App() {
     triggerShake();
     addFloatingText("FLOOR RISING! 🌋", 4, BOARD_HEIGHT - 2);
     setFeedback("Warning: Floor rising!");
-  };
+  }, [totalScore, handleGameEnd, addFloatingText]);
 
-  // -------------------------------------------------------------------------
-  // Time-out logic (block reaches bottom before answering)
-  // -------------------------------------------------------------------------
-  const handleTimeOut = () => {
+  // Timeout triggers
+  const handleTimeOut = useCallback(() => {
     const { activePiece: piece, board: currentBoard, misses: currentMisses, questionIndex: qIdx, shuffledQuestions: questions } = stateRef.current;
     if (!piece) return;
+
+    playSFX("incorrect");
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -496,12 +723,123 @@ export default function App() {
     setFeedback(`Time's up! The answer was: ${correctAnswer}. Stone block locked!`);
 
     if (nextMisses >= STRIKES_ALLOWED) {
+      const activeLevel = level;
+      const levelQuestions = QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1];
+      const q = randomItem(levelQuestions);
+      setShuffledQuestions([q]);
+      setQuestionIndex(0);
+      setRecoveryTimer(4);
       setGameState("strike_recovery");
     } else {
       setGameState("transition");
       setTimeout(() => setGameState("resolving"), 1500);
     }
-  };
+  }, [level]);
+
+  // -------------------------------------------------------------------------
+  // Piece lifecycle
+  // -------------------------------------------------------------------------
+  const spawnQuizPiece = useCallback(() => {
+    const activeLevel = stateRef.current.level;
+    const isFirstBlock = stateRef.current.questionIndex === 0;
+
+    let pieceBase;
+    
+    // Safety check: Fruit bombs or any power-up blocks should NEVER spawn first
+    if (isFirstBlock) {
+      pieceBase = randomItem(TETROMINOES);
+    } else {
+      const canSpawnBomb = stats.unlockedItems?.includes("catalyst_bomb") || false;
+      const canSpawnWildcard = stats.unlockedItems?.includes("catalyst_wildcard") || false;
+      const spawnRoll = Math.random();
+
+      if (canSpawnBomb && spawnRoll < 0.08) {
+        pieceBase = { 
+          shape: [[1]], 
+          color: "bg-rose-600 border border-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.8)] animate-glow-tnt", 
+          isFruit: true, 
+          emoji: "💣", 
+          isCatalystBomb: true 
+        };
+      } else if (canSpawnWildcard && spawnRoll >= 0.08 && spawnRoll < 0.16) {
+        pieceBase = { 
+          shape: [[1]], 
+          color: "bg-gradient-to-tr from-yellow-300 via-pink-500 to-indigo-500 border border-white", 
+          isWildcard: true, 
+          emoji: "✨" 
+        };
+      } else if (Math.random() < 0.15) {
+        pieceBase = randomItem(FRUITS);
+      } else {
+        pieceBase = randomItem(TETROMINOES);
+      }
+    }
+
+    const width = pieceBase.shape[0].length;
+    const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
+
+    let color = pieceBase.color;
+    let emoji = pieceBase.emoji || "";
+    let isSlime = false;
+
+    // Apply Sticky Slime blocks hazard to level 5 & 6 (never on first block!)
+    if (!isFirstBlock && (activeLevel === 5 || activeLevel === 6) && Math.random() < 0.35) {
+      isSlime = true;
+      color = "bg-emerald-700 border-2 border-emerald-400";
+      emoji = "🦠";
+    }
+
+    const newPiece = {
+      ...pieceBase,
+      color,
+      emoji,
+      isSlime,
+      x,
+      y: 0,
+    };
+
+    if (checkCollision(newPiece, stateRef.current.board)) {
+      handleGameEnd(false, totalScore);
+      return;
+    }
+
+    setActivePiece(newPiece);
+    setQuestionStartTime(Date.now());
+  }, [stats.unlockedItems, totalScore, handleGameEnd]);
+
+  const lockPiece = useCallback(() => {
+    const { activePiece: piece, board: currentBoard } = stateRef.current;
+    if (!piece) return;
+
+    playSFX("lock");
+
+    const nextBoard = currentBoard.map((row) => [...row]);
+    piece.shape.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (!value) return;
+        const boardY = piece.y + y;
+        const boardX = piece.x + x;
+        if (boardY >= 0) {
+          nextBoard[boardY][boardX] = {
+            color: piece.color,
+            isFruit: piece.isFruit || false,
+            emoji: piece.emoji || "",
+            isStone: piece.isStone || false,
+            isTNT: piece.isTNT || false,
+            isDrill: piece.isDrill || false,
+            isLightning: piece.isLightning || false,
+            isSlime: piece.isSlime || false,
+            isCatalystBomb: piece.isCatalystBomb || false,
+            isWildcard: piece.isWildcard || false,
+          };
+        }
+      });
+    });
+
+    setBoard(nextBoard);
+    setActivePiece(null);
+    setGameState("resolving");
+  }, []);
 
   // -------------------------------------------------------------------------
   // Controls
@@ -526,7 +864,7 @@ export default function App() {
       addFloatingText("STUCK! 🦠", piece.x, piece.y);
       lockPiece();
     }
-  }, [lockPiece]);
+  }, [lockPiece, addFloatingText]);
 
   const rotatePiece = useCallback(() => {
     const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state } = stateRef.current;
@@ -561,6 +899,8 @@ export default function App() {
             isDrill: droppedPiece.isDrill || false,
             isLightning: droppedPiece.isLightning || false,
             isSlime: droppedPiece.isSlime || false,
+            isCatalystBomb: droppedPiece.isCatalystBomb || false,
+            isWildcard: droppedPiece.isWildcard || false,
           };
         }
       });
@@ -614,6 +954,278 @@ export default function App() {
     return () => clearInterval(timer);
   }, [gameState, level, moveDown]);
 
+  // -------------------------------------------------------------------------
+  // Board resolver: blasts, lines, combos, gravity, win/loss
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (gameState !== "resolving") return undefined;
+
+    let pointsEarned = 0;
+    const cellsToClear = [];
+    let hasTnt = false;
+    let hasDrill = false;
+    let hasLightning = false;
+
+    const addCellToClear = (y, x) => {
+      if (!cellsToClear.some((cell) => cell.y === y && cell.x === x)) {
+        cellsToClear.push({ y, x });
+      }
+    };
+
+    // 1. Process TNT detonators & Catalyst Bombs (3x3 grid blast)
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isTNT || board[y][x]?.isCatalystBomb) {
+          hasTnt = true;
+          for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+              const cy = y + dy;
+              const cx = x + dx;
+              if (cy >= 0 && cy < BOARD_HEIGHT && cx >= 0 && cx < BOARD_WIDTH) {
+                if (board[cy][cx] !== null) addCellToClear(cy, cx);
+              }
+            }
+          }
+          pointsEarned += board[y][x]?.isCatalystBomb ? 100 : 80;
+        }
+      }
+    }
+
+    // 2. Process Drills (clear cell and 3 cells below)
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isDrill) {
+          hasDrill = true;
+          for (let dy = 0; dy <= 3; dy += 1) {
+            const cy = y + dy;
+            if (cy >= 0 && cy < BOARD_HEIGHT) {
+              if (board[cy][x] !== null) addCellToClear(cy, x);
+            }
+          }
+          pointsEarned += 60;
+        }
+      }
+    }
+
+    // 3. Process Lightning (zap all blocks of the most common color)
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isLightning) {
+          hasLightning = true;
+          addCellToClear(y, x);
+
+          const colorCounts = {};
+          for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+            for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+              const cell = board[by][bx];
+              if (cell && !cell.isStone && !cell.isFruit && cell.color) {
+                colorCounts[cell.color] = (colorCounts[cell.color] || 0) + 1;
+              }
+            }
+          }
+
+          let targetColor = null;
+          let maxCount = 0;
+          Object.entries(colorCounts).forEach(([color, count]) => {
+            if (count > maxCount) {
+              maxCount = count;
+              targetColor = color;
+            }
+          });
+
+          if (targetColor) {
+            for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+              for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+                if (board[by][bx]?.color === targetColor) {
+                  addCellToClear(by, bx);
+                }
+              }
+            }
+            pointsEarned += maxCount * 15;
+          }
+        }
+      }
+    }
+
+    // 4. Fruit bombs clear themselves and neighbors
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isFruit && !board[y][x]?.isCatalystBomb) {
+          [{ y, x }, { y: y + 1, x }, { y: y - 1, x }, { y, x: x + 1 }, { y, x: x - 1 }]
+            .forEach((cell) => {
+              const insideBoard =
+                cell.y >= 0 && cell.y < BOARD_HEIGHT && cell.x >= 0 && cell.x < BOARD_WIDTH;
+              if (insideBoard && board[cell.y][cell.x] !== null) addCellToClear(cell.y, cell.x);
+            });
+          pointsEarned += POINTS.FRUIT_BOMB;
+        }
+      }
+    }
+
+    // 5. Standard full-line clear
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      if (!board[y].every((cell) => cell !== null)) continue;
+      for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear(y, x);
+      pointsEarned += POINTS.LINE_CLEAR;
+    }
+
+    // 6. Connected components of 5+ matching colors
+    const visited = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(false));
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        const startCell = board[y][x];
+        if (!startCell || startCell.isFruit || startCell.isStone || startCell.isWildcard || visited[y][x]) continue;
+
+        const color = startCell.color;
+        const component = [];
+        const stack = [{ y, x }];
+
+        while (stack.length > 0) {
+          const current = stack.pop();
+          const cy = current.y;
+          const cx = current.x;
+          const cell = board[cy]?.[cx];
+          if (
+            cy < 0 ||
+            cy >= BOARD_HEIGHT ||
+            cx < 0 ||
+            cx >= BOARD_WIDTH ||
+            visited[cy][cx] ||
+            cell === null ||
+            cell.isFruit ||
+            cell.isStone ||
+            cell.isTNT ||
+            cell.isDrill ||
+            cell.isLightning ||
+            cell.isCatalystBomb
+          ) {
+            continue;
+          }
+
+          const isMatch = cell.isWildcard || cell.color === color;
+          if (!isMatch) continue;
+
+          visited[cy][cx] = true;
+          component.push({ y: cy, x: cx });
+          stack.push({ y: cy + 1, x: cx }, { y: cy - 1, x: cx }, { y: cy, x: cx + 1 }, { y: cy, x: cx - 1 });
+        }
+
+        if (component.length >= 5) {
+          pointsEarned += POINTS.COLOR_MATCH + (component.length - 5) * 5;
+          component.forEach((cell) => addCellToClear(cell.y, cell.x));
+        }
+      }
+    }
+
+    if (cellsToClear.length > 0) {
+      const anchor = cellsToClear[0];
+      
+      queueMicrotask(() => triggerShake());
+      queueMicrotask(() => setExplodingCells(cellsToClear));
+
+      const timer = setTimeout(() => {
+        const afterClearBoard = board.map((row) => [...row]);
+        cellsToClear.forEach((cell) => {
+          afterClearBoard[cell.y][cell.x] = null;
+        });
+
+        for (let x = 0; x < BOARD_WIDTH; x += 1) {
+          let writeY = BOARD_HEIGHT - 1;
+          for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
+            if (afterClearBoard[y][x] === null) continue;
+            if (writeY !== y) {
+              afterClearBoard[writeY][x] = afterClearBoard[y][x];
+              afterClearBoard[y][x] = null;
+            }
+            writeY -= 1;
+          }
+        }
+
+        setBoard(afterClearBoard);
+        setExplodingCells([]);
+        setTotalScore((prev) => prev + pointsEarned);
+
+        // Schedule and trigger floating texts asynchronously
+        if (hasTnt) {
+          playSFX("explosion");
+          addFloatingText("TNT BLAST! 💣", anchor.x, anchor.y - 1);
+        } else if (hasDrill) {
+          playSFX("match", 1);
+          addFloatingText("DRILL BLAST! 🌀", anchor.x, anchor.y - 1);
+        } else if (hasLightning) {
+          playSFX("match", 2);
+          addFloatingText("ZAP! ⚡", anchor.x, anchor.y - 1);
+        } else {
+          playSFX("match", 0);
+        }
+        
+        if (pointsEarned > 0) {
+          addFloatingText(`+${pointsEarned}`, anchor.x, anchor.y);
+        }
+
+        if ((level === 9 || level === 10) && stateRef.current.questionsSinceLastRise === 0) {
+          triggerFloorRise(afterClearBoard);
+        }
+      }, 400);
+
+      return () => clearTimeout(timer);
+    }
+
+    queueMicrotask(() => {
+      const projectedScore = totalScore + pointsEarned;
+      if (misses >= STRIKES_ALLOWED) {
+        handleGameEnd(false, projectedScore);
+      } else if (projectedScore >= WIN_SCORE_TARGET) {
+        handleGameEnd(true, projectedScore);
+      } else if (questionIndex >= shuffledQuestions.length - 1) {
+        handleGameEnd(false, projectedScore);
+      } else {
+        setQuestionIndex((prev) => prev + 1);
+        setGameState("quiz");
+        spawnQuizPiece();
+      }
+    });
+
+    return undefined;
+  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise]);
+
+  // Evolving Background Music Controller
+  useEffect(() => {
+    if (["dropping", "quiz", "transition", "resolving", "intro", "strike_recovery"].includes(gameState)) {
+      const totalCells = BOARD_WIDTH * BOARD_HEIGHT;
+      const occupiedCount = board.flat().filter((cell) => cell !== null).length;
+      const occupancy = occupiedCount / totalCells;
+
+      const baseBpm = 110 + level * 2;
+      const bpm = Math.min(185, Math.floor(baseBpm + occupancy * 50));
+
+      const isMajor = (gameState === "transition" && isControllable) || gameState === "intro";
+      const scaleType = isMajor ? "major" : "minor";
+
+      startArpeggiator(bpm, scaleType, occupancy);
+    } else {
+      stopArpeggiator();
+    }
+
+    return () => {
+      if (["start", "level_win", "gameover"].includes(gameState)) {
+        stopArpeggiator();
+      }
+    };
+  }, [board, level, gameState, isControllable, audioOn]);
+
+  // Menu Music controller
+  useEffect(() => {
+    if (gameState === "start" && audioOn) {
+      startArpeggiator(95, "major", 0.04, "menu");
+    }
+    return () => {
+      if (gameState !== "start") {
+        stopArpeggiator();
+      }
+    };
+  }, [gameState, audioOn]);
+
   // Keyboard events
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -638,10 +1250,7 @@ export default function App() {
   // Level Wind Turbulence (Level 7 & 8)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (level !== 7 && level !== 8) {
-      setWindForce(0);
-      return undefined;
-    }
+    if (level !== 7 && level !== 8) return undefined;
 
     const timer = setInterval(() => {
       const choices = [-1, 0, 1];
@@ -655,7 +1264,7 @@ export default function App() {
     }, 8000);
 
     return () => clearInterval(timer);
-  }, [level, gameState]);
+  }, [level, gameState, addFloatingText]);
 
   useEffect(() => {
     if (gameState !== "dropping" || windForce === 0 || !activePiece) return undefined;
@@ -696,7 +1305,7 @@ export default function App() {
     }, quizSpeed);
 
     return () => clearInterval(timer);
-  }, [gameState, activePiece, level]);
+  }, [gameState, activePiece, level, handleTimeOut]);
 
   // -------------------------------------------------------------------------
   // Strike Recovery Mode countdown timer
@@ -704,19 +1313,11 @@ export default function App() {
   useEffect(() => {
     if (gameState !== "strike_recovery") return undefined;
 
-    setRecoveryTimer(4);
-
-    const activeLevel = stateRef.current.level;
-    const levelQuestions = QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1];
-    const q = randomItem(levelQuestions);
-    setShuffledQuestions([q]);
-    setQuestionIndex(0);
-
     const timer = setInterval(() => {
       setRecoveryTimer((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          setGameState("gameover");
+          handleGameEnd(false, totalScore);
           return 0;
         }
         return prev - 1;
@@ -724,19 +1325,44 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, level]);
+  }, [gameState, handleGameEnd, totalScore]);
+
+  // -------------------------------------------------------------------------
+  // Level Intro / Loading Screen Countdown Hook
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (gameState !== "intro") return undefined;
+
+    if (introCountdown > 0) {
+      const timer = setTimeout(() => {
+        setIntroCountdown((prev) => prev - 1);
+        playSFX("button");
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      playSFX("level_start");
+      const timer = setTimeout(() => {
+        setGameState("quiz");
+        stateRef.current.level = level;
+        stateRef.current.questionIndex = 0;
+        spawnQuizPiece();
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [gameState, introCountdown, level, spawnQuizPiece]);
 
   // -------------------------------------------------------------------------
   // Quiz answers handler
   // -------------------------------------------------------------------------
-  const handleAnswer = (selectedIndex) => {
+  const handleAnswer = useCallback((selectedIndex) => {
     const question = shuffledQuestions[questionIndex];
     const correct = selectedIndex === question.answer;
-    const { activePiece: piece, misses: currentMisses, board: currentBoard } = stateRef.current;
+    const { activePiece: piece, misses: currentMisses } = stateRef.current;
 
     // Handle Strike Recovery Phase
-    if (gameState === "strike_recovery") {
+    if (stateRef.current.gameState === "strike_recovery") {
       if (correct) {
+        playSFX("correct");
         setMisses(2);
         const nextBoard = board.map((row, y) => {
           if (y < 3) return Array(BOARD_WIDTH).fill(null);
@@ -755,12 +1381,13 @@ export default function App() {
           spawnQuizPiece();
         }, 1500);
       } else {
-        setGameState("gameover");
+        handleGameEnd(false, totalScore);
       }
       return;
     }
 
     if (correct) {
+      playSFX("correct");
       const nextStreak = correctStreak + 1;
       setCorrectStreak(nextStreak);
       setTotalScore((score) => score + POINTS.CORRECT_ANSWER);
@@ -794,6 +1421,7 @@ export default function App() {
       setFeedback(`Correct!${bonusText} You have control.`);
       setGameState("dropping");
     } else {
+      playSFX("incorrect");
       setCorrectStreak(0);
       const correctAnswer = question.options[question.answer];
       const nextMisses = currentMisses + 1;
@@ -801,7 +1429,6 @@ export default function App() {
       setLastCorrectAnswer(correctAnswer);
       setFeedback(`Wrong! The answer was ${correctAnswer}. Stone block incoming!`);
 
-      // Incorrect answer: block turns to stone and immediately hard-drops
       setIsControllable(false);
       const stonePiece = {
         ...piece,
@@ -811,6 +1438,7 @@ export default function App() {
       };
 
       let y = stonePiece.y;
+      const currentBoard = board;
       while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoard)) {
         y += 1;
       }
@@ -836,6 +1464,12 @@ export default function App() {
       setActivePiece(null);
 
       if (nextMisses >= STRIKES_ALLOWED) {
+        const activeLevel = level;
+        const levelQuestions = QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1];
+        const q = randomItem(levelQuestions);
+        setShuffledQuestions([q]);
+        setQuestionIndex(0);
+        setRecoveryTimer(4);
         setGameState("strike_recovery");
       } else {
         setGameState("transition");
@@ -849,12 +1483,12 @@ export default function App() {
         return next >= 3 ? 0 : next;
       });
     }
-  };
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
   // -------------------------------------------------------------------------
-  const startLevel = (nextLevel) => {
+  const startLevel = useCallback((nextLevel) => {
     setLevel(nextLevel);
     setShuffledQuestions(shuffleArray(QUESTION_BANKS[nextLevel] || QUESTION_BANKS[1]));
     setBoard(createEmptyBoard());
@@ -872,11 +1506,12 @@ export default function App() {
     setWindForce(0);
     setQuestionsSinceLastRise(0);
 
-    setGameState("quiz");
-    // Ensure stateRef has level set before spawning
-    stateRef.current.level = nextLevel;
-    spawnQuizPiece();
-  };
+    const fact = TRIVIA_FACTS[Math.floor(Math.random() * TRIVIA_FACTS.length)];
+    setRandomFact(fact);
+    setIntroCountdown(3);
+
+    setGameState("intro");
+  }, []);
 
   // Compose display board by overlaying the active piece
   const displayBoard = board.map((row) => [...row]);
@@ -895,6 +1530,8 @@ export default function App() {
             isTNT: activePiece.isTNT,
             isDrill: activePiece.isDrill,
             isLightning: activePiece.isLightning,
+            isCatalystBomb: activePiece.isCatalystBomb,
+            isWildcard: activePiece.isWildcard,
           };
         }
       });
@@ -904,14 +1541,34 @@ export default function App() {
   const currentQuestion = shuffledQuestions[questionIndex];
   const currentLevel = LEVELS.find((item) => item.id === level) || LEVELS[0];
   const isMenu = gameState === "start";
+  
   const panelClass = isMenu
     ? "w-full max-w-5xl h-full flex flex-col items-center justify-center text-center z-10"
     : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-center text-center md:text-left relative overflow-hidden z-10";
 
   return (
     <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
+      <Confetti active={gameState === "level_win"} />
+      
+      {/* Global Speaker / Volume Switch */}
+      <div className="fixed top-2.5 right-2.5 z-40">
+        <button
+          type="button"
+          onClick={() => {
+            playSFX("button");
+            setAudioOn(!audioOn);
+          }}
+          className="p-2 bg-slate-800/90 border border-slate-700/50 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-all text-sm flex items-center justify-center text-cyan-400 hover:text-cyan-300"
+          aria-label={audioOn ? "Mute audio" : "Unmute audio"}
+        >
+          {audioOn ? "🔊" : "🔇"}
+        </button>
+      </div>
+
       <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-5xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
-        {!isMenu && (
+        
+        {/* Playable Game Grid View */}
+        {!isMenu && gameState !== "intro" && (
           <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10 animate-float" aria-label="Game board">
             <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
               <span className="text-slate-300">Lvl {level} | Score: <span className="text-cyan-400 text-lg">{totalScore}/{WIN_SCORE_TARGET}</span></span>
@@ -936,15 +1593,32 @@ export default function App() {
               {displayBoard.map((row, y) =>
                 row.map((cell, x) => {
                   const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
-                  let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cell ? cell.color : "bg-slate-800"}`;
+                  
+                  // Apply active styles including Matrix code values for Retro theme
+                  let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                  let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cellColorClass}`;
+                  
                   if (cell?.isStone) cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
                   if (cell?.isTNT) cellClass += " animate-glow-tnt";
                   if (cell?.isDrill) cellClass += " animate-glow-drill";
                   if (cell?.isLightning) cellClass += " animate-glow-lightning";
-                  if (isExploding) cellClass += " transition-all duration-[400ms] ease-out scale-150 opacity-0 rotate-180 z-10 blur-sm";
-                  else if (cell) cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
+                  
+                  if (isExploding) {
+                    cellClass += " transition-all duration-[400ms] ease-out scale-150 opacity-0 rotate-180 z-10 blur-sm";
+                  } else if (cell) {
+                    cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
+                  }
 
-                  return <div key={`${y}-${x}`} className={cellClass}>{cell?.emoji || ""}</div>;
+                  // Retro matrix digit renderer
+                  const displayText = (stats.activeTheme === "theme_retro" && cell && !cell.emoji && !cell.isStone)
+                    ? (((y + x) % 2 === 0) ? "0" : "1")
+                    : cell?.emoji || "";
+
+                  return (
+                    <div key={`${y}-${x}`} className={cellClass}>
+                      {displayText}
+                    </div>
+                  );
                 })
               )}
 
@@ -984,194 +1658,480 @@ export default function App() {
           </section>
         )}
 
-        <main className={panelClass}>
-          {gameState !== "start" && (
+        {/* Level Intro Preview Screen (LOADING SCREEN) */}
+        {!isMenu && gameState === "intro" && (
+          <section className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[450px]">
+            <BrainSparksCanvas />
+            
+            {/* Pulsing glow brain */}
+            <svg viewBox="0 0 100 100" className="w-24 h-24 text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.85)] animate-pulse mb-6 z-10">
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" 
+                d="M35,45 C28,45 22,38 28,30 C32,25 40,25 45,33 C48,25 56,25 60,30 C66,38 60,45 53,45" />
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" 
+                d="M35,45 C35,62 48,68 50,75 C52,68 65,62 65,45" />
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" 
+                d="M50,28 L50,75 M32,45 H68" />
+              <circle cx="38" cy="35" r="1.5" fill="#a855f7" className="animate-ping" />
+              <circle cx="62" cy="35" r="1.5" fill="#a855f7" className="animate-ping" />
+              <circle cx="50" cy="52" r="1.5" fill="#22d3ee" className="animate-ping" />
+            </svg>
+
+            <span className="text-xs font-black text-cyan-400 uppercase tracking-widest mb-1 z-10">
+              PREPARING LEVEL {level}
+            </span>
+            <h2 className="text-2xl md:text-3xl font-black text-white mb-6 z-10 drop-shadow-md">
+              {currentLevel.name}
+            </h2>
+
+            {/* Curated Fact card */}
+            <div className="w-full max-w-md bg-slate-950/60 border border-slate-700/50 p-5 rounded-2xl shadow-inner text-center z-10 backdrop-blur-md mb-8">
+              <h3 className="text-[10px] font-black uppercase text-purple-400 tracking-wider mb-2">Did You Know?</h3>
+              <p className="text-slate-200 text-sm md:text-base leading-relaxed font-semibold">
+                "{randomFact}"
+              </p>
+            </div>
+
+            {/* Dramatic countdown indicator */}
+            <div className="z-10 flex flex-col items-center">
+              <div className="text-slate-400 uppercase font-black tracking-widest text-xs mb-1 animate-pulse">
+                Blastoff in
+              </div>
+              <div className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 animate-bounce">
+                {introCountdown > 0 ? introCountdown : "BLAST!"}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Home Screen and Dashboard */}
+        {isMenu && (
+          menuTab === "levels" ? (
+            <div className="menu-panel w-full max-w-5xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10 flex flex-col overflow-hidden">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4 text-left border-b border-slate-700/50 pb-4">
+                <div>
+                  <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
+                    Think Fast Blast
+                  </h1>
+                  <p className="text-sm md:text-base text-cyan-200 font-semibold mt-0.5">
+                    Speed Trivia & Block Blaster Puzzle
+                  </p>
+                </div>
+                
+                {/* Stats Dashboard */}
+                <div className="flex flex-wrap gap-3 text-xs text-slate-300 bg-slate-950/50 px-4 py-2.5 rounded-xl border border-slate-700/40 shadow-inner">
+                  <div>Games: <strong className="text-white">{stats.totalGames}</strong></div>
+                  <div>Accuracy: <strong className="text-green-400">{stats.totalQuestions > 0 ? `${Math.round((stats.totalCorrect / stats.totalQuestions) * 100)}%` : "0%"}</strong></div>
+                  <div>Correct: <strong className="text-cyan-400">{stats.totalCorrect}</strong></div>
+                  <div>Glitches: <strong className="text-purple-400">{stats.glitches} 👾</strong></div>
+                </div>
+              </div>
+
+              {/* Toolbar Buttons */}
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Navigation:</span>
+                  <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-small-button bg-purple-600 hover:bg-purple-500 border-purple-400 shadow-md">
+                    🔮 The Glitch Codex Shop
+                  </button>
+                  <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-small-button">
+                    📋 How to Play
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-2 text-xs">
+                  <button type="button" onClick={() => { playSFX("button"); setMaxUnlockedLevel(FINAL_LEVEL_ID); }} className="menu-small-button bg-cyan-500 text-slate-950 border-cyan-300">Unlock All</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if(confirm("Reset all statistics and game progress?")) {
+                        playSFX("button");
+                        setMaxUnlockedLevel(1);
+                        const reset = { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
+                        setStats(reset);
+                        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(reset));
+                      }
+                    }}
+                    className="menu-small-button text-red-400 border-red-500/30 hover:bg-red-500/10"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Levels Selection Grid */}
+              <div className="max-h-[50vh] overflow-y-auto pr-1">
+                <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-2 text-left">
+                  Select A Challenge Level
+                </h2>
+                <div className="level-grid">
+                  {LEVELS.map((item) => {
+                    const isUnlocked = item.id <= maxUnlockedLevel;
+                    const bestScore = stats.highScores[item.id] || 0;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        disabled={!isUnlocked}
+                        onClick={() => startLevel(item.id)}
+                        className={`level-card flex flex-col justify-between ${
+                          isUnlocked
+                            ? "bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 hover:border-cyan-400/50 hover:shadow-[0_0_12px_rgba(34,211,238,0.15)] text-white border-slate-700"
+                            : "bg-slate-900/60 text-slate-500 cursor-not-allowed border-slate-800/80"
+                        }`}
+                      >
+                        <div>
+                          <span className="block text-[10px] md:text-xs uppercase tracking-widest opacity-80 font-bold">
+                            {isUnlocked ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}
+                          </span>
+                          <span className={`block text-sm md:text-base mt-0.5 font-black ${isUnlocked ? "text-cyan-300" : "text-slate-600"}`}>
+                            {item.name}
+                          </span>
+                          <span className="block text-xs mt-0.5 font-semibold opacity-70">
+                            {item.theme}
+                          </span>
+                        </div>
+                        {isUnlocked && bestScore > 0 && (
+                          <div className="mt-1.5 text-[9px] font-black text-yellow-400 bg-slate-950/60 px-2 py-0.5 rounded border border-yellow-500/20 self-start flex items-center gap-1 shadow-inner">
+                            🏆 Best: {bestScore}
+                          </div>
+                        )}
+                        {!isUnlocked && (
+                          <span className="mt-1.5 text-xs">🔒 Locked</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : menuTab === "shop" ? (
+            // Redesigned Glitch Codex Store
+            <div className="menu-panel w-full max-w-4xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-5 z-10">
+              <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-4">
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-rose-400">
+                    🔮 The Glitch Codex Shop
+                  </h2>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    Unlock theme cosmetics and catalyst block perks
+                  </p>
+                </div>
+                
+                {/* Glitches count badge */}
+                <div className="bg-slate-950/60 px-4 py-2 rounded-full border border-purple-500/40 text-purple-300 font-black flex items-center gap-2 shadow-inner text-sm">
+                  <span>👾 Glitches:</span>
+                  <span className="text-white text-base font-black">{stats.glitches}</span>
+                </div>
+              </div>
+
+              {/* Items Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[50vh] overflow-y-auto pr-1">
+                {SHOP_ITEMS.map((item) => {
+                  const isUnlocked = stats.unlockedItems.includes(item.id);
+                  const isActiveTheme = stats.activeTheme === item.id;
+                  const canAfford = stats.glitches >= item.cost;
+
+                  const handleUnlock = () => {
+                    if (!canAfford) return;
+                    playSFX("unlock");
+                    const nextUnlocked = [...stats.unlockedItems, item.id];
+                    const updated = {
+                      ...stats,
+                      glitches: stats.glitches - item.cost,
+                      unlockedItems: nextUnlocked,
+                      activeTheme: item.type === "theme" ? item.id : stats.activeTheme
+                    };
+                    setStats(updated);
+                    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                  };
+
+                  const handleEquip = () => {
+                    playSFX("theme");
+                    const updated = {
+                      ...stats,
+                      activeTheme: item.id
+                    };
+                    setStats(updated);
+                    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                  };
+
+                  return (
+                    <div key={item.id} className="p-3 bg-slate-900/70 border border-slate-700/50 rounded-2xl flex items-center justify-between gap-4 shadow-xl hover:border-purple-500/30 transition-colors">
+                      <div className="text-left flex-1 min-w-0">
+                        <span className="inline-block bg-purple-900/40 text-[9px] font-black uppercase text-purple-300 tracking-wider px-2 py-0.5 rounded border border-purple-500/20">
+                          {item.type}
+                        </span>
+                        <h3 className="text-sm md:text-base font-black text-white mt-1.5 truncate">
+                          {item.name}
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-1 leading-normal font-semibold">
+                          {item.desc}
+                        </p>
+                        
+                        <div className="mt-3">
+                          {isUnlocked ? (
+                            item.type === "theme" ? (
+                              isActiveTheme ? (
+                                <span className="inline-block bg-purple-500/20 text-purple-300 border border-purple-500/40 font-black text-[11px] px-3 py-1 rounded-lg">
+                                  ✓ Active Theme
+                                </span>
+                              ) : (
+                                <button type="button" onClick={handleEquip} className="bg-slate-700 hover:bg-slate-600 text-white font-black text-[11px] px-3 py-1 rounded-lg border border-slate-600 shadow-md">
+                                  Equip Theme
+                                </button>
+                              )
+                            ) : (
+                              <span className="inline-block bg-green-500/20 text-green-300 border border-green-500/40 font-black text-[11px] px-3 py-1 rounded-lg">
+                                ✓ Perk Unlocked
+                              </span>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleUnlock}
+                              disabled={!canAfford}
+                              className={`font-black text-[11px] px-3 py-1.5 rounded-lg border transition shadow-md ${
+                                canAfford
+                                  ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white border-purple-400"
+                                  : "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed shadow-none"
+                              }`}
+                            >
+                              Buy for {item.cost} 👾
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <StoreItemPreview itemId={item.id} />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-between items-center mt-5 border-t border-slate-700/50 pt-3">
+                {stats.activeTheme !== "default" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playSFX("button");
+                      const updated = { ...stats, activeTheme: "default" };
+                      setStats(updated);
+                      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                    }}
+                    className="text-xs text-slate-400 hover:text-white underline font-bold"
+                  >
+                    Reset to Default Theme
+                  </button>
+                ) : <div />}
+                <button type="button" onClick={() => { playSFX("button"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2 px-6 rounded-xl text-xs border border-slate-600 shadow-md">
+                  Back to Levels Menu
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Rules/Instructions Tab
+            <div className="menu-panel w-full max-w-3xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10">
+              <h1 className="text-4xl md:text-5xl font-black mb-3 text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">
+                How To Play
+              </h1>
+              <p className="text-sm md:text-base text-slate-300 mb-6 font-semibold">
+                Answer trivia cards rapidly, place your falling pieces strategically, and score <strong className="text-cyan-400">{WIN_SCORE_TARGET} points</strong> to advance.
+              </p>
+              
+              <div className="grid md:grid-cols-2 gap-4 text-left text-xs md:text-sm mb-6">
+                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-700/50 shadow-inner">
+                  <h2 className="text-cyan-300 font-black uppercase tracking-wider text-xs mb-2.5">Basic Rules</h2>
+                  <ul className="space-y-2 font-medium text-slate-300">
+                    <li className="flex items-start gap-1.5">⏱ The block falls slowly while the question card is active. Answer quickly!</li>
+                    <li className="flex items-start gap-1.5">✓ Correct: You gain controller gravity and placing powers. Speed bonuses exist.</li>
+                    <li className="flex items-start gap-1.5">⚡ Combo streaks: 3, 5, or 7 correct answers convert falling blocks into TNT, Drills, or Lightning.</li>
+                    <li className="flex items-start gap-1.5">✗ Incorrect: The block turns to heavy stone and locks automatically.</li>
+                  </ul>
+                </div>
+                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-700/50 shadow-inner">
+                  <h2 className="text-purple-300 font-black uppercase tracking-wider text-xs mb-2.5">Clearing Blocks</h2>
+                  <ul className="space-y-2 font-medium text-slate-300">
+                    <li className="flex items-start gap-1.5">💥 Connected Match-5: Connecting 5 blocks of the same color clears them.</li>
+                    <li className="flex items-start gap-1.5">🧱 Horizontal rows: Filling a full line wipes the line out (just like Tetris).</li>
+                    <li className="flex items-start gap-1.5">🌋 Mutators: Wind pushing blocks, slime blocks getting stuck, and rising lava floor blocks.</li>
+                    <li className="flex items-start gap-1.5">🚨 Strike recovery: Answer high-tension recovery cards to save yourself at 3 strikes.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <button type="button" onClick={() => { playSFX("button"); setMenuTab("levels"); }} className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-3 px-8 rounded-xl shadow-lg transition-transform hover:scale-105">
+                Back to Menu
+              </button>
+            </div>
+          )
+        )}
+
+        {/* Panel View for active gameplay states */}
+        {!isMenu && gameState !== "intro" && (
+          <main className={panelClass}>
             <div className="static md:absolute md:top-4 md:right-4 mb-2 md:mb-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[10px] md:text-xs font-black px-3 md:px-4 py-1.5 rounded-full shadow-lg border border-white/20">
               LEVEL {level}: {currentLevel.name}
             </div>
-          )}
 
-          {gameState === "start" && (
-            showInstructions ? (
-              <div className="menu-panel w-full max-w-3xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6">
-                <h1 className="text-4xl md:text-6xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
-                <p className="text-base md:text-xl text-slate-300 mb-4">Answer fast, place smart, and reach <strong className="text-cyan-400">{WIN_SCORE_TARGET} points</strong> to beat each level.</p>
-                <div className="grid md:grid-cols-[1.4fr_1fr] gap-3 text-left text-sm md:text-base">
-                  <div className="bg-slate-900/50 p-3 md:p-4 rounded-xl border border-slate-700/50 shadow-inner">
-                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-2">How to Play</h2>
-                    <ul className="space-y-1.5">
-                      <li>The block falls slowly while the question is active. Answer quickly!</li>
-                      <li>Correct: You gain control. Answer streaks trigger power-ups (💣, ⚡, 🌀).</li>
-                      <li>Answer in under 2.2s for a <strong>PERFECT Quick Bonus (+15 Pts)</strong>.</li>
-                      <li>Wrong / Timeout: Turns block to grey stone and drops it immediately.</li>
-                    </ul>
-                  </div>
-                  <div className="bg-slate-900/50 p-3 md:p-4 rounded-xl border border-slate-700/50 shadow-inner">
-                    <h2 className="text-white font-black uppercase tracking-widest text-xs mb-2">Combo Explosions</h2>
-                    <ul className="space-y-1.5">
-                      <li>Connect 5 same-color blocks to blast them.</li>
-                      <li>Fill a full horizontal row to clear the line.</li>
-                      <li>Level Mutators: Slime (Sticky), Wind (Pushes blocks), Lava (Rising floors).</li>
-                      <li>Fail recovery questions to save yourself from strikes!</li>
-                    </ul>
-                  </div>
-                </div>
-                <button type="button" onClick={() => setShowInstructions(false)} className="mt-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-3 px-8 rounded-xl shadow-lg transition-transform hover:scale-105">
-                  Let's Play
-                </button>
-              </div>
-            ) : (
-              <div className="menu-panel w-full max-w-5xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-3 md:p-5">
-                <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-3 text-left">
-                  <div>
-                    <h1 className="text-3xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-sm">Think Fast Blast</h1>
-                    <p className="text-sm md:text-base text-cyan-200">Highest unlocked level: <strong>{maxUnlockedLevel}</strong></p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => setShowInstructions(true)} className="menu-small-button">Rules</button>
-                    <button type="button" onClick={() => setMaxUnlockedLevel(FINAL_LEVEL_ID)} className="menu-small-button bg-cyan-500 text-slate-950 border-cyan-300">Unlock All</button>
-                    <button type="button" onClick={() => setMaxUnlockedLevel(1)} className="menu-small-button">Reset</button>
-                  </div>
-                </div>
-                <div className="level-grid">
-                  {LEVELS.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      disabled={item.id > maxUnlockedLevel}
-                      onClick={() => startLevel(item.id)}
-                      className={`level-card ${
-                        item.id <= maxUnlockedLevel
-                          ? "bg-gradient-to-r from-blue-600 to-cyan-500 hover:scale-[1.01] text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] border-white/20"
-                          : "bg-slate-800 text-slate-500 cursor-not-allowed border-slate-700/50"
-                      }`}
-                    >
-                      <span className="block text-[10px] md:text-xs uppercase tracking-widest opacity-80">{item.id <= maxUnlockedLevel ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}</span>
-                      <span className="block text-base md:text-xl mt-0.5">{item.name}</span>
-                      <span className="block text-xs md:text-sm mt-0.5 font-semibold opacity-80">{item.theme}</span>
+            {gameState === "quiz" && currentQuestion && (
+              <div className="w-full flex flex-col min-h-0">
+                <h2 className="text-xs md:text-sm font-black text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                  Question {questionIndex + 1}
+                </h2>
+                <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
+                  {currentQuestion.q}
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
+                  {currentQuestion.options.map((option, index) => (
+                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
+                      {option}
                     </button>
                   ))}
                 </div>
               </div>
-            )
-          )}
+            )}
 
-          {gameState === "quiz" && currentQuestion && (
-            <div className="w-full flex flex-col min-h-0">
-              <h2 className="text-xs md:text-sm font-black text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                Question {questionIndex + 1}
-              </h2>
-              <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">{currentQuestion.q}</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
-                {currentQuestion.options.map((option, index) => (
-                  <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
-                    {option}
-                  </button>
-                ))}
+            {gameState === "strike_recovery" && currentQuestion && (
+              <div className="w-full flex flex-col min-h-0 text-center items-center">
+                <h2 className="text-xs md:text-sm font-black text-red-500 uppercase tracking-widest mb-2 animate-pulse">
+                  🚨 STRIKE RECOVERY MODE 🚨
+                </h2>
+                <div className="w-full bg-slate-900 rounded-full h-2.5 mb-4 overflow-hidden border border-red-500/30">
+                  <div
+                    className="bg-red-500 h-full transition-all duration-1000"
+                    style={{ width: `${(recoveryTimer / 4) * 100}%` }}
+                  />
+                </div>
+                <h3 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 text-white leading-tight drop-shadow-md">
+                  {currentQuestion.q}
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
+                  {currentQuestion.options.map((option, index) => (
+                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-red-600 hover:to-orange-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-red-500/50">
+                      {option}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {gameState === "strike_recovery" && currentQuestion && (
-            <div className="w-full flex flex-col min-h-0 text-center items-center">
-              <h2 className="text-xs md:text-sm font-black text-red-500 uppercase tracking-widest mb-2 animate-pulse">
-                🚨 STRIKE RECOVERY MODE 🚨
-              </h2>
-              <div className="w-full bg-slate-900 rounded-full h-2.5 mb-4 overflow-hidden border border-red-500/30">
-                <div
-                  className="bg-red-500 h-full transition-all duration-1000"
-                  style={{ width: `${(recoveryTimer / 4) * 100}%` }}
-                />
+            {gameState === "transition" && (
+              <div className="w-full flex flex-col items-center justify-center py-4 md:py-12">
+                <h2 className={`text-2xl md:text-5xl font-black ${isControllable ? "text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]" : "text-red-400 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]"} animate-pulse text-center leading-tight`}>
+                  {feedback}
+                </h2>
               </div>
-              <h3 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 text-white leading-tight drop-shadow-md">
-                {currentQuestion.q}
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
-                {currentQuestion.options.map((option, index) => (
-                  <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-red-600 hover:to-orange-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-red-500/50">
-                    {option}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {gameState === "transition" && (
-            <div className="w-full flex flex-col items-center justify-center py-4 md:py-12">
-              <h2 className={`text-2xl md:text-5xl font-black ${isControllable ? "text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]" : "text-red-400 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]"} animate-pulse text-center leading-tight`}>
-                {feedback}
-              </h2>
-            </div>
-          )}
-
-          {gameState === "dropping" && (
-            <div className="w-full flex flex-col items-center md:items-start text-slate-300">
-              <h3 className="text-xl md:text-2xl font-black mb-3 md:mb-6 text-white drop-shadow-md">
-                {isControllable
-                  ? `Place your block! ${activePiece?.isTNT ? "💣 TNT active" : activePiece?.isDrill ? "🌀 Drill active" : activePiece?.isLightning ? "⚡ Lightning active" : activePiece?.isSlime ? "🦠 Sticky Slime active" : ""}`
-                  : "STONE INCOMING!"}
-              </h3>
-              {isControllable ? (
-                <>
-                  <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">Tap board to rotate. Swipe sideways to move. Swipe down to drop.</p>
-                  <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
-                    <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Arrows</kbd> Move & Rotate</p>
-                    <p className="flex items-center gap-3"><kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">Space</kbd> Hard Drop</p>
+            {gameState === "dropping" && (
+              <div className="w-full flex flex-col items-center md:items-start text-slate-300">
+                <h3 className="text-xl md:text-2xl font-black mb-3 md:mb-6 text-white drop-shadow-md">
+                  {isControllable
+                    ? `Place your block! ${activePiece?.isTNT ? "💣 TNT active" : activePiece?.isDrill ? "🌀 Drill active" : activePiece?.isLightning ? "⚡ Lightning active" : activePiece?.isSlime ? "🦠 Sticky Slime active" : activePiece?.isCatalystBomb ? "💣 Catalyst Bomb active" : activePiece?.isWildcard ? "✨ Wildcard Star active" : ""}`
+                    : "STONE INCOMING!"}
+                </h3>
+                {isControllable ? (
+                  <>
+                    <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">
+                      Tap board to rotate. Swipe/drag to move. Swipe down to drop.
+                    </p>
+                    <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+                      <p className="flex items-center gap-3">
+                        <kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">
+                          Arrows
+                        </kbd> Move &amp; Rotate
+                      </p>
+                      <p className="flex items-center gap-3">
+                        <kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">
+                          Space
+                        </kbd> Hard Drop
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-slate-700/50 p-3 md:p-6 rounded-2xl border border-slate-500/50">
+                    <p className="text-slate-300 font-black text-base md:text-lg">
+                      You have no control over this stone piece!
+                    </p>
                   </div>
-                </>
-              ) : (
-                <div className="bg-slate-700/50 p-3 md:p-6 rounded-2xl border border-slate-500/50">
-                  <p className="text-slate-300 font-black text-base md:text-lg">You have no control over this stone piece!</p>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          {gameState === "level_win" && (
-            <div className="w-full flex flex-col items-center md:items-start">
-              <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">Level Complete!</h2>
-              <p className="text-base md:text-xl text-slate-300 mb-4 md:mb-8 font-medium">You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!</p>
-              {level < FINAL_LEVEL_ID ? (
-                <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                  <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
-                    START LEVEL {level + 1}
-                  </button>
-                  <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
-                    Main Menu
-                  </button>
-                </div>
-              ) : (
-                <div className="text-center md:text-left bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50 w-full">
-                  <p className="text-3xl font-black text-yellow-400 mb-6 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]">You beat the game!</p>
-                  <button type="button" onClick={() => setGameState("start")} className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-black py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform">
-                    Main Menu
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {gameState === "gameover" && (
-            <div className="w-full flex flex-col items-center md:items-start">
-              <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600 drop-shadow-md">Game Over!</h2>
-              <div className="bg-slate-900/50 p-3 md:p-6 rounded-2xl border border-slate-700/50 mb-4 md:mb-8 w-full text-center md:text-left">
-                <p className="text-base md:text-xl text-slate-300 mb-2 font-bold">
-                  {misses >= STRIKES_ALLOWED ? "You ran out of recovery options!" : questionIndex >= shuffledQuestions.length - 1 ? "Ran out of questions!" : "The board filled up!"}
+            {gameState === "level_win" && (
+              <div className="w-full flex flex-col items-center md:items-start">
+                <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">
+                  Level Complete!
+                </h2>
+                <p className="text-base md:text-xl text-slate-300 mb-4 font-medium">
+                  You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!
                 </p>
-                <p className="text-2xl md:text-3xl text-cyan-400 font-black mt-2 md:mt-4">Final Points: {totalScore}</p>
+                
+                <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-700/50 mb-5 text-xs md:text-sm font-bold flex items-center gap-1.5 shadow-inner">
+                  <span className="text-purple-400">👾 Glitches Earned:</span>
+                  <span className="text-white font-black">+{Math.floor(totalScore / 10) + (level * 10)}</span>
+                </div>
+
+                {level < FINAL_LEVEL_ID ? (
+                  <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                    <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
+                      START LEVEL {level + 1}
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                      Main Menu
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center md:text-left bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50 w-full">
+                    <p className="text-3xl font-black text-yellow-400 mb-6 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]">
+                      You beat the entire game!
+                    </p>
+                    <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-black py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform">
+                      Main Menu
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
-                  RESTART LEVEL {level}
-                </button>
-                <button type="button" onClick={() => setGameState("start")} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
-                  Main Menu
-                </button>
+            )}
+
+            {gameState === "gameover" && (
+              <div className="w-full flex flex-col items-center md:items-start">
+                <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600 drop-shadow-md">
+                  Game Over!
+                </h2>
+                <div className="bg-slate-900/60 p-3 md:p-6 rounded-2xl border border-slate-700/50 mb-4 md:mb-6 w-full text-center md:text-left shadow-inner">
+                  <p className="text-base md:text-xl text-slate-300 mb-1 font-bold">
+                    {misses >= STRIKES_ALLOWED 
+                      ? "You ran out of recovery options!" 
+                      : questionIndex >= shuffledQuestions.length - 1 
+                        ? "Ran out of trivia questions!" 
+                        : "The board filled up to the top!"}
+                  </p>
+                  <p className="text-2xl md:text-3xl text-cyan-400 font-black mt-2">
+                    Final Points: {totalScore}
+                  </p>
+                  
+                  <div className="mt-3 text-xs font-black text-purple-400 flex items-center gap-1.5 justify-center md:justify-start">
+                    <span>👾 Glitches Earned:</span>
+                    <span className="text-white bg-slate-950/60 px-2 py-0.5 rounded border border-purple-500/20">
+                      +{Math.max(1, Math.floor(totalScore / 20) + (level * 2))}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                  <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
+                    RESTART LEVEL {level}
+                  </button>
+                  <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                    Main Menu
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </main>
+            )}
+          </main>
+        )}
       </div>
     </div>
   );
