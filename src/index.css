@@ -709,6 +709,26 @@ button {
   background: rgb(71 85 105);
 }
 
+.mobile-drop-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgb(103 232 249 / 0.7);
+  background: linear-gradient(135deg, #22d3ee, #2563eb 55%, #7c3aed);
+  color: white;
+  font-weight: 1000;
+  letter-spacing: 0.14em;
+  font-size: 0.9rem;
+  box-shadow: 0 10px 20px rgb(0 0 0 / 0.25), 0 0 18px rgb(34 211 238 / 0.35);
+}
+
+.mobile-drop-button:active {
+  transform: scale(0.97);
+  filter: brightness(1.12);
+}
+
 .answer-button {
   min-height: 2.55rem;
   padding: 0.6rem 0.75rem;
@@ -741,7 +761,8 @@ button {
     padding: 0.5rem;
   }
 
-  .mobile-control-button {
+  .mobile-control-button,
+  .mobile-drop-button {
     height: 2.25rem;
   }
 

@@ -2831,13 +2831,16 @@ Can you beat my score? Play ThinkFastBlast!`;
             </div>
 
             {gameState === "dropping" && isControllable && (
-              <div className="game-controls grid grid-cols-3 gap-1.5 mt-2 lg:hidden">
-                <div />
-                <button type="button" onClick={rotatePiece} className="mobile-control-button">↑</button>
-                <div />
-                <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button">←</button>
-                <button type="button" onClick={hardDrop} className="mobile-control-button">↓</button>
-                <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button">→</button>
+              <div className="game-controls mt-2 lg:hidden flex flex-col gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
+                  <div />
+                  <button type="button" onClick={rotatePiece} className="mobile-control-button" aria-label="Rotate">↑</button>
+                  <div />
+                  <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button" aria-label="Move left">←</button>
+                  <button type="button" onClick={moveDown} className="mobile-control-button" aria-label="Soft drop">↓</button>
+                  <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button" aria-label="Move right">→</button>
+                </div>
+                <button type="button" onClick={hardDrop} className="mobile-drop-button" aria-label="Hard drop to bottom">⬇ DROP ⬇</button>
               </div>
             )}
           </section>
@@ -3779,7 +3782,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 {isControllable ? (
                   <>
                     <p className="lg:hidden text-cyan-200 text-xs font-bold mb-1">
-                      Tap board to rotate. Swipe/drag to move. Swipe down to drop.
+                      Tap to rotate · swipe to move · ↓ nudges down · DROP slams it to the bottom.
                     </p>
                     <div className="hidden lg:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
                       <p className="flex items-center gap-3">
