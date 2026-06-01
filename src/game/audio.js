@@ -485,9 +485,24 @@ export const playSFX = (type, comboCount = 0) => {
       }
 
       case "correct": {
-        playTone({ frequency: 523.25, startTime: now, duration: 0.16, gain: 0.1, type: "sine", endFrequency: 659.25, destination: sfxGain });
-        playTone({ frequency: 659.25, startTime: now + 0.08, duration: 0.14, gain: 0.09, type: "sine", endFrequency: 783.99, destination: sfxGain });
-        playTone({ frequency: 783.99, startTime: now + 0.16, duration: 0.14, gain: 0.08, type: "triangle", endFrequency: 1046.5, destination: sfxGain });
+        // Streak-pitched reward ladder: each consecutive correct answer lifts the
+        // chime by a semitone (capped) so the player literally hears momentum build.
+        const semis = Math.min(Math.max(comboCount - 1, 0), 12);
+        const shift = Math.pow(2, semis / 12);
+        playTone({ frequency: 523.25 * shift, startTime: now, duration: 0.16, gain: 0.1, type: "sine", endFrequency: 659.25 * shift, destination: sfxGain });
+        playTone({ frequency: 659.25 * shift, startTime: now + 0.08, duration: 0.14, gain: 0.09, type: "sine", endFrequency: 783.99 * shift, destination: sfxGain });
+        playTone({ frequency: 783.99 * shift, startTime: now + 0.16, duration: 0.14, gain: 0.08, type: "triangle", endFrequency: 1046.5 * shift, destination: sfxGain });
+        // A bright sparkle tops the chord once the player is on a real streak.
+        if (comboCount >= 3) {
+          playTone({ frequency: 1318.51 * shift, startTime: now + 0.2, duration: 0.12, gain: 0.05, type: "sine", endFrequency: 1567.98 * shift, filterType: "highpass", filterFrequency: 800, destination: sfxGain });
+        }
+        break;
+      }
+
+      case "coin": {
+        // Soft ascending blip used to "tick" the animated score counter upward.
+        const base = 880 + Math.min(comboCount, 8) * 60;
+        playTone({ frequency: base, startTime: now, duration: 0.05, gain: 0.035, type: "triangle", endFrequency: base * 1.5, filterType: "highpass", filterFrequency: 500, destination: sfxGain });
         break;
       }
 
@@ -534,6 +549,18 @@ export const playSFX = (type, comboCount = 0) => {
       case "explosion": {
         playNoiseBurst({ duration: 0.45, gain: 0.22, filterFrequency: 800, filterDecay: 30, destination: sfxGain });
         playTone({ frequency: 140, startTime: now, duration: 0.28, gain: 0.09, type: "triangle", endFrequency: 55, destination: sfxGain });
+        break;
+      }
+
+      case "thunder": {
+        // Electric crackle + rolling boom for the Lightning blast.
+        playNoiseBurst({ duration: 0.12, gain: 0.18, filterFrequency: 6000, filterDecay: 2500, destination: sfxGain });
+        playNoiseBurst({ duration: 0.5, gain: 0.16, filterFrequency: 1400, filterDecay: 40, startTime: now + 0.04, destination: sfxGain });
+        playTone({ frequency: 90, startTime: now + 0.02, duration: 0.4, gain: 0.12, type: "triangle", endFrequency: 40, destination: sfxGain });
+        // Rapid zap arpeggio sells the "electrify".
+        [1760, 1320, 2093, 1568, 2637].forEach((freq, i) => {
+          playTone({ frequency: freq, startTime: now + i * 0.035, duration: 0.06, gain: 0.05, type: "square", filterType: "highpass", filterFrequency: 900, destination: sfxGain });
+        });
         break;
       }
 

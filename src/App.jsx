@@ -73,10 +73,12 @@ const readSavedStats = () => {
       totalQuestions: parsed.totalQuestions || 0,
       glitches: parsed.glitches || 0,
       unlockedItems: parsed.unlockedItems || [],
-      activeTheme: parsed.activeTheme || "default"
+      activeTheme: parsed.activeTheme || "default",
+      unlockedAchievements: parsed.unlockedAchievements || [],
+      bestStreak: parsed.bestStreak || 0
     };
   } catch {
-    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
+    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default", unlockedAchievements: [], bestStreak: 0 };
   }
 };
 
@@ -95,6 +97,108 @@ const readSavedProgress = () => {
 // -------------------------------------------------------------------------
 // Interactive Previews for the Shop Cards
 // -------------------------------------------------------------------------
+// One-time achievements. Persisted in stats.unlockedAchievements; surfaced as toasts.
+const ACHIEVEMENTS = {
+  perfect: { label: "Quick Thinker", emoji: "⚡", desc: "Answered in under 2.2 seconds" },
+  tnt: { label: "Demolitionist", emoji: "💣", desc: "Forged a TNT block on a x3 streak" },
+  drill: { label: "Driller", emoji: "🌀", desc: "Forged a Drill block on a x5 streak" },
+  lightning: { label: "Storm Caller", emoji: "⚡", desc: "Forged a Lightning Rod on a x7 streak" },
+  streak10: { label: "Untouchable", emoji: "🔥", desc: "Reached a x10 answer streak" },
+  line: { label: "Line Cook", emoji: "🧱", desc: "Cleared a full line" },
+  bigmatch: { label: "Color Theory", emoji: "🌈", desc: "Cleared a 5+ color match" },
+};
+
+// Escalating praise that scales with the current streak — variable verbal reward.
+const praiseForStreak = (streak) => {
+  if (streak >= 12) return "LEGENDARY! 👑";
+  if (streak >= 10) return "GENIUS! 🧠";
+  if (streak >= 8) return "UNSTOPPABLE! 🚀";
+  if (streak >= 6) return "ON FIRE! 🔥";
+  if (streak >= 4) return "BRILLIANT! 🌟";
+  if (streak >= 2) return "GREAT! ✨";
+  return "NICE! 👍";
+};
+
+// Tweens a displayed integer toward a target value with an ease-out curve, so the
+// score visibly "ticks up" on every gain — the core dopamine micro-reward.
+function useAnimatedNumber(target, durationMs = 550) {
+  const [display, setDisplay] = useState(target);
+  const fromRef = useRef(target);
+  const rafRef = useRef(0);
+  const startRef = useRef(0);
+
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === target) return undefined;
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReduced) {
+      fromRef.current = target;
+      rafRef.current = requestAnimationFrame(() => setDisplay(target));
+      return () => cancelAnimationFrame(rafRef.current);
+    }
+
+    startRef.current = 0;
+    const step = (ts) => {
+      if (!startRef.current) startRef.current = ts;
+      const t = Math.min(1, (ts - startRef.current) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const value = Math.round(from + (target - from) * eased);
+      setDisplay(value);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        fromRef.current = target;
+      }
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [target, durationMs]);
+
+  return display;
+}
+
+// Live countdown of the ≤2.2s "PERFECT" quick-answer bonus window. Pure visual.
+function QuickAnswerTimer({ startTime, active }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!active || !startTime) return undefined;
+    let raf;
+    const tick = () => {
+      setElapsed((Date.now() - startTime) / 1000);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [active, startTime]);
+
+  const WINDOW = 2.2;
+  const inBonus = elapsed <= WINDOW;
+  const pct = Math.max(0, Math.min(1, 1 - elapsed / WINDOW)) * 100;
+
+  return (
+    <div className="quick-timer" aria-hidden="true">
+      <div className="quick-timer-label">
+        <span className={inBonus ? "text-amber-300" : "text-slate-400"}>
+          {inBonus ? "⚡ PERFECT BONUS" : "Answer now!"}
+        </span>
+        <span className={inBonus ? "text-amber-300" : "text-slate-500"}>
+          {inBonus ? `+15 · ${Math.max(0, WINDOW - elapsed).toFixed(1)}s` : "+10"}
+        </span>
+      </div>
+      <div className="quick-timer-track">
+        <div
+          className={`quick-timer-fill ${inBonus ? "quick-timer-bonus" : "quick-timer-late"}`}
+          style={{ width: `${inBonus ? pct : 100}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function StoreItemPreview({ itemId }) {
   const canvasRef = useRef(null);
 
@@ -699,38 +803,215 @@ function MenuLightfield() {
 }
 
 function MenuPreviewBoard() {
-  const previewCells = [
-    { x: 4, y: 1, color: "bg-purple-500" },
-    { x: 3, y: 2, color: "bg-purple-500" },
-    { x: 4, y: 2, color: "bg-purple-500" },
-    { x: 5, y: 2, color: "bg-purple-500" },
-    { x: 1, y: 10, color: "bg-cyan-500" },
-    { x: 2, y: 10, color: "bg-cyan-500" },
-    { x: 3, y: 10, color: "bg-cyan-500" },
-    { x: 4, y: 10, color: "bg-cyan-500" },
-    { x: 6, y: 12, color: "bg-green-500" },
-    { x: 7, y: 12, color: "bg-green-500" },
-    { x: 5, y: 13, color: "bg-green-500" },
-    { x: 6, y: 13, color: "bg-green-500" },
-    { x: 8, y: 14, color: "bg-red-500", emoji: "💣" },
-  ];
+  const [simBoard, setSimBoard] = useState(() => createEmptyBoard());
+  const [simPiece, setSimPiece] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    let piece = null;
+    let boardState = createEmptyBoard();
+
+    const localRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    const spawn = () => {
+      const pieceBase = localRandom([...TETROMINOES, ...FRUITS]);
+      const width = pieceBase.shape[0].length;
+      const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
+      return {
+        ...pieceBase,
+        x,
+        y: 0
+      };
+    };
+
+    const interval = setInterval(() => {
+      if (!active) return;
+
+      if (!piece) {
+        piece = spawn();
+        if (checkCollision(piece, boardState)) {
+          boardState = createEmptyBoard();
+          piece = spawn();
+        }
+        setSimBoard(boardState.map(row => [...row]));
+        setSimPiece(piece);
+        return;
+      }
+
+      // Simulate player movements
+      if (Math.random() < 0.25) {
+        const move = Math.random() < 0.5 ? -1 : 1;
+        const movedPiece = { ...piece, x: piece.x + move };
+        if (!checkCollision(movedPiece, boardState)) {
+          piece = movedPiece;
+        }
+      }
+      if (Math.random() < 0.12 && !piece.isFruit) {
+        const rotatedPiece = { ...piece, shape: rotateShapeClockwise(piece.shape) };
+        if (!checkCollision(rotatedPiece, boardState)) {
+          piece = rotatedPiece;
+        }
+      }
+
+      // Move down
+      const movedDown = { ...piece, y: piece.y + 1 };
+      if (!checkCollision(movedDown, boardState)) {
+        piece = movedDown;
+        setSimPiece(piece);
+      } else {
+        // Lock piece
+        const nextBoard = boardState.map(row => [...row]);
+        piece.shape.forEach((row, dy) => {
+          row.forEach((val, dx) => {
+            if (val) {
+              const py = piece.y + dy;
+              const px = piece.x + dx;
+              if (py >= 0 && py < BOARD_HEIGHT && px >= 0 && px < BOARD_WIDTH) {
+                nextBoard[py][px] = {
+                  color: piece.color,
+                  emoji: piece.emoji || "",
+                  isStone: piece.isStone || false,
+                  isFruit: piece.isFruit || false
+                };
+              }
+            }
+          });
+        });
+
+        const toClear = [];
+
+        // Fruit bombs clear themselves and neighbors
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+          for (let x = 0; x < BOARD_WIDTH; x++) {
+            if (nextBoard[y][x]?.isFruit) {
+              const targets = [
+                { y, x },
+                { y: y + 1, x },
+                { y: y - 1, x },
+                { y, x: x + 1 },
+                { y, x: x - 1 }
+              ];
+              targets.forEach(t => {
+                if (t.y >= 0 && t.y < BOARD_HEIGHT && t.x >= 0 && t.x < BOARD_WIDTH) {
+                  if (nextBoard[t.y][t.x] !== null) {
+                    if (!toClear.some(c => c.y === t.y && c.x === t.x)) {
+                      toClear.push(t);
+                    }
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        // Row Clear checks
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+          if (nextBoard[y].every(cell => cell !== null)) {
+            for (let x = 0; x < BOARD_WIDTH; x++) {
+              if (!toClear.some(c => c.y === y && c.x === x)) {
+                toClear.push({ y, x });
+              }
+            }
+          }
+        }
+
+        // Color Clears Match 5 checks
+        const visited = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(false));
+        for (let y = 0; y < BOARD_HEIGHT; y++) {
+          for (let x = 0; x < BOARD_WIDTH; x++) {
+            const start = nextBoard[y][x];
+            const isGoingToClear = (cy, cx) => toClear.some(c => c.y === cy && c.x === cx);
+            if (start && !start.isFruit && !start.isStone && !visited[y][x] && !isGoingToClear(y, x)) {
+              const comp = [];
+              const queue = [{ y, x }];
+              visited[y][x] = true;
+              while (queue.length > 0) {
+                const curr = queue.shift();
+                comp.push(curr);
+                const dirs = [{ y: 1, x: 0 }, { y: -1, x: 0 }, { y: 0, x: 1 }, { y: 0, x: -1 }];
+                for (const d of dirs) {
+                  const ny = curr.y + d.y;
+                  const nx = curr.x + d.x;
+                  if (ny >= 0 && ny < BOARD_HEIGHT && nx >= 0 && nx < BOARD_WIDTH) {
+                    const neighbor = nextBoard[ny][nx];
+                    if (neighbor && neighbor.color === start.color && !neighbor.isFruit && !neighbor.isStone && !visited[ny][nx] && !isGoingToClear(ny, nx)) {
+                      visited[ny][nx] = true;
+                      queue.push({ y: ny, x: nx });
+                    }
+                  }
+                }
+              }
+              if (comp.length >= 5) {
+                comp.forEach(t => {
+                  if (!toClear.some(c => c.y === t.y && c.x === t.x)) {
+                    toClear.push(t);
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        if (toClear.length > 0) {
+          toClear.forEach(c => { nextBoard[c.y][c.x] = null; });
+          // Gravity pull down
+          for (let x = 0; x < BOARD_WIDTH; x++) {
+            let writeY = BOARD_HEIGHT - 1;
+            for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
+              if (nextBoard[y][x] !== null) {
+                if (writeY !== y) {
+                  nextBoard[writeY][x] = nextBoard[y][x];
+                  nextBoard[y][x] = null;
+                }
+                writeY--;
+              }
+            }
+          }
+        }
+
+        boardState = nextBoard;
+        piece = null;
+        setSimBoard(boardState);
+        setSimPiece(null);
+      }
+    }, 450);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Display overlay
+  const displayBoard = simBoard.map(row => [...row]);
+  if (simPiece) {
+    simPiece.shape.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (value) {
+          const boardY = simPiece.y + y;
+          const boardX = simPiece.x + x;
+          if (boardY >= 0 && boardY < BOARD_HEIGHT && boardX >= 0 && boardX < BOARD_WIDTH) {
+            displayBoard[boardY][boardX] = {
+              color: simPiece.color,
+              emoji: simPiece.emoji || ""
+            };
+          }
+        }
+      });
+    });
+  }
 
   return (
     <div className="menu-preview-board" aria-hidden="true">
       <div className="menu-preview-grid">
-        {Array.from({ length: BOARD_WIDTH * BOARD_HEIGHT }, (_, index) => {
-          const x = index % BOARD_WIDTH;
-          const y = Math.floor(index / BOARD_WIDTH);
-          const cell = previewCells.find((item) => item.x === x && item.y === y);
-          return (
-            <div key={`${x}-${y}`} className={`menu-preview-cell ${cell ? cell.color : ""}`}>
+        {displayBoard.map((row, y) =>
+          row.map((cell, x) => (
+            <div key={`${y}-${x}`} className={`menu-preview-cell ${cell ? cell.color : ""}`}>
               {cell?.emoji || ""}
             </div>
-          );
-        })}
+          ))
+        )}
       </div>
-      <div className="menu-preview-burst menu-preview-burst-a" />
-      <div className="menu-preview-burst menu-preview-burst-b" />
       <div className="menu-preview-label">LIVE RUN SIM</div>
     </div>
   );
@@ -777,6 +1058,245 @@ export default function App() {
   const [musicVol, setMusicVolState] = useState(() => getVolumeSettings().musicVolume);
   const [sfxVol, setSfxVolState] = useState(() => getVolumeSettings().sfxVolume);
 
+  // Custom Question Builder States
+  const [customQuestions, setCustomQuestions] = useState(() => {
+    try {
+      const saved = localStorage.getItem("think-fast-blast-custom-questions");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("think-fast-blast-custom-questions", JSON.stringify(customQuestions));
+    } catch (e) {
+      console.error("Failed to save custom questions", e);
+    }
+  }, [customQuestions]);
+
+  const [builderSubTab, setBuilderSubTab] = useState("manual");
+  const [manualQuestion, setManualQuestion] = useState("");
+  const [manualOptions, setManualOptions] = useState(["", "", "", ""]);
+  const [manualAnswer, setManualAnswer] = useState(0);
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generatedQuestions, setGeneratedQuestions] = useState([]);
+
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editQText, setEditQText] = useState("");
+  const [editQOptions, setEditQOptions] = useState(["", "", "", ""]);
+  const [editQAnswer, setEditQAnswer] = useState(0);
+
+  const startEdit = (idx) => {
+    const q = customQuestions[idx];
+    setEditingIndex(idx);
+    setEditQText(q.q);
+    setEditQOptions([...q.options]);
+    setEditQAnswer(q.answer);
+  };
+
+  const generateQuestionsFromText = (text, fileName) => {
+    const generated = [];
+    const cleanText = text.replace(/\r\n/g, "\n").trim();
+    if (!cleanText) return generateFallbackQuestions(fileName);
+
+    const sentences = cleanText
+      .split(/[.!?]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 20 && s.length < 180);
+
+    const factRegex = /([^.!?]*)\b(is|was|are|were)\b([^.!?]*)/i;
+
+    for (const sentence of sentences) {
+      const match = sentence.match(factRegex);
+      if (match && match[1].trim().length > 5 && match[3].trim().length > 3) {
+        const subject = match[1].trim();
+        const verb = match[2].trim();
+        const object = match[3].trim();
+
+        const qText = `Complete the sentence: "${subject} ${verb}..."`;
+        const correctAnswer = object;
+
+        const otherWords = cleanText
+          .split(/\s+/)
+          .map(w => w.replace(/[^a-zA-Z]/g, ""))
+          .filter(w => w.length > 4 && w.toLowerCase() !== correctAnswer.toLowerCase());
+
+        const decoys = [...new Set(otherWords)].slice(0, 3);
+        while (decoys.length < 3) {
+          decoys.push(randomItem(["Incorrect Option", "None of the above", "Wrong Answer", "Decoy Choice"]));
+        }
+
+        const options = [correctAnswer, ...decoys];
+        const shuffledOptions = shuffleArray(options);
+        const correctIdx = shuffledOptions.indexOf(correctAnswer);
+
+        generated.push({
+          q: qText,
+          options: shuffledOptions,
+          answer: correctIdx
+        });
+
+        if (generated.length >= 5) break;
+      }
+    }
+
+    if (generated.length < 3) {
+      const fallbacks = generateFallbackQuestions(fileName);
+      generated.push(...fallbacks.slice(0, 5 - generated.length));
+    }
+
+    return generated;
+  };
+
+  const generateFallbackQuestions = (fileName) => {
+    const name = (fileName || "").toLowerCase();
+    if (name.includes("space") || name.includes("solar") || name.includes("planet") || name.includes("galaxy") || name.includes("orbit")) {
+      return [
+        { q: "Which planet is largest in the Solar System?", options: ["Earth", "Saturn", "Jupiter", "Neptune"], answer: 2 },
+        { q: "What is the closest planet to the Sun?", options: ["Venus", "Mercury", "Mars", "Earth"], answer: 1 },
+        { q: "Which galaxy is home to our solar system?", options: ["Andromeda", "Sombrero", "Milky Way", "Triangulum"], answer: 2 },
+        { q: "How long does it take sunlight to reach Earth?", options: ["8 minutes", "1 hour", "3 seconds", "24 hours"], answer: 0 },
+        { q: "Which planet is known as the Red Planet?", options: ["Mars", "Venus", "Jupiter", "Mercury"], answer: 0 }
+      ];
+    }
+    if (name.includes("math") || name.includes("calc") || name.includes("number") || name.includes("geometry") || name.includes("algebra")) {
+      return [
+        { q: "What is the square root of 144?", options: ["10", "12", "14", "16"], answer: 1 },
+        { q: "How many degrees are in a right angle?", options: ["45", "90", "180", "360"], answer: 1 },
+        { q: "What is 15 multiplied by 4?", options: ["50", "55", "60", "65"], answer: 2 },
+        { q: "What shape has eight sides?", options: ["Hexagon", "Octagon", "Pentagon", "Decagon"], answer: 1 },
+        { q: "What is the next prime number after 7?", options: ["9", "11", "13", "15"], answer: 1 }
+      ];
+    }
+    if (name.includes("science") || name.includes("bio") || name.includes("chem") || name.includes("cell") || name.includes("physics") || name.includes("water")) {
+      return [
+        { q: "What is the chemical formula for water?", options: ["CO2", "H2O", "NaCl", "O2"], answer: 1 },
+        { q: "What is the powerhouse of the cell?", options: ["Nucleus", "Ribosome", "Mitochondria", "Cytoplasm"], answer: 2 },
+        { q: "What gas do plants absorb during photosynthesis?", options: ["Oxygen", "Carbon Dioxide", "Nitrogen", "Helium"], answer: 1 },
+        { q: "What is the freezing point of water in Celsius?", options: ["0", "32", "100", "-10"], answer: 0 },
+        { q: "Which element is number 1 on the Periodic Table?", options: ["Helium", "Oxygen", "Hydrogen", "Carbon"], answer: 2 }
+      ];
+    }
+    if (name.includes("history") || name.includes("war") || name.includes("president") || name.includes("civil")) {
+      return [
+        { q: "Who was the first US President?", options: ["Thomas Jefferson", "George Washington", "Abraham Lincoln", "John Adams"], answer: 1 },
+        { q: "In which year did World War II end?", options: ["1918", "1939", "1945", "1950"], answer: 2 },
+        { q: "Which ancient empire built the Colosseum in Rome?", options: ["Greeks", "Romans", "Egyptians", "Persians"], answer: 1 },
+        { q: "Who wrote the Declaration of Independence?", options: ["George Washington", "Thomas Jefferson", "Benjamin Franklin", "John Hancock"], answer: 1 },
+        { q: "What ship sank in 1912 after hitting an iceberg?", options: ["Lusitania", "Titanic", "Britannic", "Olympic"], answer: 1 }
+      ];
+    }
+    return [
+      { q: "How many continents are there on Earth?", options: ["5", "6", "7", "8"], answer: 2 },
+      { q: "Which is the largest mammal in the world?", options: ["Elephant", "Blue Whale", "Great White Shark", "Giraffe"], answer: 1 },
+      { q: "What do caterpillars turn into?", options: ["Beetles", "Butterflies", "Moths", "Dragonflies"], answer: 1 },
+      { q: "How many legs does a standard spider have?", options: ["6", "8", "10", "12"], answer: 1 },
+      { q: "What is the capital of France?", options: ["Berlin", "London", "Rome", "Paris"], answer: 3 }
+    ];
+  };
+
+  const handleFile = (file) => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File size exceeds 5MB limit.");
+      return;
+    }
+    setFileUploading(true);
+    setGenerationProgress(0);
+
+    const interval = setInterval(() => {
+      setGenerationProgress((prev) => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          return 100;
+        }
+        return prev + 10;
+      });
+    }, 200);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result || "";
+      setTimeout(() => {
+        const questions = generateQuestionsFromText(text, file.name);
+        setGeneratedQuestions(questions);
+        setFileUploading(false);
+        playSFX("correct");
+      }, 2550);
+    };
+    reader.onerror = () => {
+      alert("Error reading file.");
+      setFileUploading(false);
+      clearInterval(interval);
+    };
+
+    if (file.name.endsWith(".txt")) {
+      reader.readAsText(file);
+    } else {
+      setTimeout(() => {
+        const questions = generateQuestionsFromText("", file.name);
+        setGeneratedQuestions(questions);
+        setFileUploading(false);
+        playSFX("correct");
+        clearInterval(interval);
+      }, 2550);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    handleFile(file);
+  };
+
+  const handleFileDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    handleFile(file);
+  };
+
+  const handleExport = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(customQuestions, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "thinkfast-blast-custom-pack.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      playSFX("correct");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to export pack.");
+    }
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        if (Array.isArray(parsed) && parsed.every(q => typeof q.q === "string" && Array.isArray(q.options) && q.options.length === 4 && typeof q.answer === "number")) {
+          setCustomQuestions(parsed);
+          playSFX("correct");
+          alert(`Successfully imported ${parsed.length} questions!`);
+        } else {
+          alert("Invalid file format. Please import a valid exported JSON file.");
+        }
+      } catch {
+        alert("Failed to parse JSON file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleMasterVolChange = (val) => {
     const next = Math.min(1, Math.max(0, Number(val)));
     setMasterVolState(next);
@@ -788,6 +1308,7 @@ export default function App() {
     setMusicVolume(next);
   };
   const handleSfxVolChange = (val) => {
+
     const next = Math.min(1, Math.max(0, Number(val)));
     setSfxVolState(next);
     setSFXVolume(next);
@@ -835,6 +1356,13 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Stats and Shop Integration States
   const [stats, setStats] = useState(readSavedStats);
   const [introCountdown, setIntroCountdown] = useState(3);
+  const [scoreBump, setScoreBump] = useState(false);
+  const prevScoreRef = useRef(0);
+  const coinTickRef = useRef(0);
+  const [achievementToasts, setAchievementToasts] = useState([]);
+  const [electrify, setElectrify] = useState(false);
+  const earnedRef = useRef(null);
+  const electrifyTimerRef = useRef(0);
   const [randomFact, setRandomFact] = useState("");
 
   // Audio Toggle State
@@ -875,6 +1403,24 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
 
+  // Score-gain feedback: pulse the HUD number and lay a soft "register" tick over
+  // the existing chime whenever points come in.
+  useEffect(() => {
+    if (totalScore > prevScoreRef.current) {
+      setScoreBump(true);
+      const now = Date.now();
+      if (now - coinTickRef.current > 140) {
+        coinTickRef.current = now;
+        playSFX("coin", correctStreak);
+      }
+      const timer = window.setTimeout(() => setScoreBump(false), 420);
+      prevScoreRef.current = totalScore;
+      return () => window.clearTimeout(timer);
+    }
+    prevScoreRef.current = totalScore;
+    return undefined;
+  }, [totalScore, correctStreak]);
+
   useEffect(() => {
     stateRef.current = {
       board,
@@ -910,6 +1456,59 @@ Can you beat my score? Play ThinkFastBlast!`;
     setShake(true);
     setTimeout(() => setShake(false), 300);
   };
+
+  // Tactile feedback on mobile. Silently no-ops where unsupported.
+  const vibrate = useCallback((pattern) => {
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate(pattern);
+      }
+    } catch {
+      // Vibration can be blocked by browser policy; ignore.
+    }
+  }, []);
+
+  // Transient pop-up notifications (achievements, records). Auto-dismiss.
+  const pushToast = useCallback((toast) => {
+    const id = Math.random().toString(36).slice(2, 9);
+    setAchievementToasts((prev) => [...prev.slice(-2), { id, ...toast }]);
+    window.setTimeout(() => {
+      setAchievementToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3400);
+  }, []);
+
+  // Unlock a one-time achievement: toast + sound the first time only, then persist.
+  const unlockAchievement = useCallback((id) => {
+    const def = ACHIEVEMENTS[id];
+    if (!def) return;
+    if (earnedRef.current === null) {
+      earnedRef.current = new Set(readSavedStats().unlockedAchievements || []);
+    }
+    if (earnedRef.current.has(id)) return;
+    earnedRef.current.add(id);
+    pushToast({ kind: "achievement", emoji: def.emoji, title: def.label, desc: def.desc });
+    playSFX("unlock");
+    vibrate(28);
+    setStats((prev) => {
+      if (prev.unlockedAchievements?.includes(id)) return prev;
+      const next = { ...prev, unlockedAchievements: [...(prev.unlockedAchievements || []), id] };
+      try {
+        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Storage may be unavailable; the toast still fired.
+      }
+      return next;
+    });
+  }, [pushToast, vibrate]);
+
+  // Fire the board-wide electrify animation (Lightning blast). Self-clearing.
+  const triggerElectrify = useCallback(() => {
+    setElectrify(true);
+    window.clearTimeout(electrifyTimerRef.current);
+    electrifyTimerRef.current = window.setTimeout(() => setElectrify(false), 850);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(electrifyTimerRef.current), []);
 
   // Add floating point/combo popup feedback
   const addFloatingText = useCallback((text, x = 4, y = 8) => {
@@ -952,17 +1551,36 @@ Can you beat my score? Play ThinkFastBlast!`;
     return piece;
   };
 
-  // Hoisted callbacks to ensure they are declared before useEffect bindings
   // Memoized game end handler to save stats, high scores, glitches and trigger audio
   const handleGameEnd = useCallback((isWin, finalScore) => {
     setIsPaused(false);
+
+    // New personal-best answer streak (recurring celebration, persisted).
+    const savedBest = readSavedStats().bestStreak || 0;
+    if (maxStreak > savedBest && maxStreak >= 3) {
+      pushToast({ kind: "record", emoji: "🏆", title: "New Record Streak!", desc: `Best answer streak: x${maxStreak}` });
+      setStats((prev) => {
+        const next = { ...prev, bestStreak: Math.max(prev.bestStreak || 0, maxStreak) };
+        try {
+          localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // Storage may be unavailable.
+        }
+        return next;
+      });
+    }
+    if (isWin && stateRef.current.misses === 0) {
+      pushToast({ kind: "record", emoji: "🌟", title: "Flawless!", desc: "Cleared the level with zero strikes" });
+    }
+
+    const levelMultiplier = level === 99 ? 5 : level;
     if (isWin) {
       playSFX("level_win");
       triggerFlash("win");
       setGameState("level_win");
-      if (level < FINAL_LEVEL_ID) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
+      if (level < FINAL_LEVEL_ID && level !== 99) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
       
-      const glitchesEarned = Math.floor(finalScore / 10) + (level * 10);
+      const glitchesEarned = Math.floor(finalScore / 10) + (levelMultiplier * 10);
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
@@ -985,12 +1603,12 @@ Can you beat my score? Play ThinkFastBlast!`;
       triggerFlash("danger");
       setGameState("gameover");
       
-      const glitchesEarned = Math.max(1, Math.floor(finalScore / 20) + (level * 2));
+      const glitchesEarned = Math.max(1, Math.floor(finalScore / 20) + (levelMultiplier * 2));
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
-
+ 
         const newStats = {
           ...prevStats,
           highScores: updatedHighScores,
@@ -1004,7 +1622,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       });
       setFeedback(`Game Over! Earned ${glitchesEarned} Glitches.`);
     }
-  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash]);
+  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash, maxStreak, pushToast]);
 
   // Floor rising hazard
   const triggerFloorRise = useCallback((currentBoard) => {
@@ -1074,7 +1692,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     if (nextMisses >= STRIKES_ALLOWED) {
       const activeLevel = level;
-      const levelQuestions = QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1];
+      const levelQuestions = activeLevel === 99 ? customQuestions : (QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1]);
       const q = randomItem(levelQuestions);
       setShuffledQuestions([q]);
       setQuestionIndex(0);
@@ -1084,7 +1702,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       setGameState("transition");
       setTimeout(() => setGameState("resolving"), 1500);
     }
-  }, [level, triggerFlash]);
+  }, [level, triggerFlash, customQuestions]);
 
   // -------------------------------------------------------------------------
   // Piece lifecycle
@@ -1323,6 +1941,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     let hasTnt = false;
     let hasDrill = false;
     let hasLightning = false;
+    let didLineClear = false;
+    let didColorMatch = false;
 
     const addCellToClear = (y, x) => {
       if (!cellsToClear.some((cell) => cell.y === y && cell.x === x)) {
@@ -1425,6 +2045,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       if (!board[y].every((cell) => cell !== null)) continue;
       for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear(y, x);
       pointsEarned += POINTS.LINE_CLEAR;
+      didLineClear = true;
     }
 
     // 6. Connected components of 5+ matching colors
@@ -1471,6 +2092,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (component.length >= 5) {
           pointsEarned += POINTS.COLOR_MATCH + (component.length - 5) * 5;
           component.forEach((cell) => addCellToClear(cell.y, cell.x));
+          didColorMatch = true;
         }
       }
     }
@@ -1481,6 +2103,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       queueMicrotask(() => triggerShake());
       queueMicrotask(() => setExplodingCells(cellsToClear));
       queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning ? "blast" : "score"));
+      if (hasLightning) {
+        queueMicrotask(() => triggerElectrify());
+        queueMicrotask(() => playSFX("thunder"));
+      }
 
       const timer = setTimeout(() => {
         const afterClearBoard = board.map((row) => [...row]);
@@ -1503,6 +2129,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         setBoard(afterClearBoard);
         setExplodingCells([]);
         setTotalScore((prev) => prev + pointsEarned);
+        vibrate(hasTnt || hasDrill || hasLightning ? [30, 20, 70] : 22);
 
         // Schedule and trigger floating texts asynchronously
         if (hasTnt) {
@@ -1521,6 +2148,9 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (pointsEarned > 0) {
           addFloatingText(`+${pointsEarned}`, anchor.x, anchor.y);
         }
+
+        if (didLineClear) unlockAchievement("line");
+        if (didColorMatch) unlockAchievement("bigmatch");
 
         if ((level === 9 || level === 10) && stateRef.current.questionsSinceLastRise === 0) {
           triggerFloorRise(afterClearBoard);
@@ -1546,7 +2176,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     });
 
     return undefined;
-  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash]);
+  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash, vibrate, triggerElectrify, unlockAchievement]);
 
   // Evolving Background Music Controller
   useEffect(() => {
@@ -1747,7 +2377,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         addFloatingText("RECOVERY SUCCESS! 💥", 4, 4);
         setFeedback("Recovery Success! Strikes set to 2.");
 
-        setShuffledQuestions(shuffleArray(QUESTION_BANKS[level] || QUESTION_BANKS[1]));
+        setShuffledQuestions(shuffleArray(level === 99 ? customQuestions : (QUESTION_BANKS[level] || QUESTION_BANKS[1])));
         setQuestionIndex(0);
         setGameState("transition");
         setTimeout(() => {
@@ -1763,13 +2393,17 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (!piece) return;
 
     if (correct) {
-      playSFX("correct");
-      triggerFlash("success");
       const nextStreak = correctStreak + 1;
+      playSFX("correct", nextStreak);
+      triggerFlash("success");
+      vibrate(nextStreak >= 5 ? [18, 40, 18] : 16);
       setCorrectStreak(nextStreak);
       setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
       setTotalScore((score) => score + POINTS.CORRECT_ANSWER);
       setQuestionsAnsweredThisLevel((answered) => answered + 1);
+
+      // Variable verbal reward: escalating praise, larger on milestone streaks.
+      addFloatingText(praiseForStreak(nextStreak), piece?.x ?? 5, (piece?.y ?? 4) + 1);
 
       // Perfect Quick Answer Bonus check
       const elapsed = (Date.now() - questionStartTime) / 1000;
@@ -1778,7 +2412,10 @@ Can you beat my score? Play ThinkFastBlast!`;
         setTotalScore((score) => score + 15);
         bonusText = " PERFECT! Quick Bonus +15 Pts!";
         addFloatingText("PERFECT! ⚡", piece?.x || 5, piece?.y || 4);
+        unlockAchievement("perfect");
       }
+
+      if (nextStreak >= 10) unlockAchievement("streak10");
 
       setIsControllable(true);
 
@@ -1788,14 +2425,17 @@ Can you beat my score? Play ThinkFastBlast!`;
         playSFX("streak");
         newPiece = makePowerUp(piece, 3);
         addFloatingText("COMBO x3! TNT Block 💣", piece?.x || 5, piece?.y || 2);
+        unlockAchievement("tnt");
       } else if (nextStreak === 5) {
         playSFX("streak");
         newPiece = makePowerUp(piece, 5);
         addFloatingText("COMBO x5! Drill Block 🌀", piece?.x || 5, piece?.y || 2);
+        unlockAchievement("drill");
       } else if (nextStreak >= 7) {
         playSFX("streak");
         newPiece = makePowerUp(piece, 7);
         addFloatingText("COMBO x7! Lightning Rod ⚡", piece?.x || 5, piece?.y || 2);
+        unlockAchievement("lightning");
       }
 
       setActivePiece(newPiece);
@@ -1804,6 +2444,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     } else {
       playSFX("incorrect");
       triggerFlash("danger");
+      vibrate([60, 30, 90]);
       setCorrectStreak(0);
       const correctAnswer = question.options[question.answer];
       const nextMisses = currentMisses + 1;
@@ -1847,7 +2488,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       if (nextMisses >= STRIKES_ALLOWED) {
         const activeLevel = level;
-        const levelQuestions = QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1];
+        const levelQuestions = activeLevel === 99 ? customQuestions : (QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1]);
         const q = randomItem(levelQuestions);
         setShuffledQuestions([q]);
         setQuestionIndex(0);
@@ -1865,7 +2506,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
@@ -1873,7 +2514,11 @@ Can you beat my score? Play ThinkFastBlast!`;
   const startLevel = useCallback((nextLevel) => {
     playSFX("button");
     setLevel(nextLevel);
-    setShuffledQuestions(shuffleArray(QUESTION_BANKS[nextLevel] || QUESTION_BANKS[1]));
+    if (nextLevel === 99) {
+      setShuffledQuestions(shuffleArray(customQuestions));
+    } else {
+      setShuffledQuestions(shuffleArray(QUESTION_BANKS[nextLevel] || QUESTION_BANKS[1]));
+    }
     setBoard(createEmptyBoard());
     setActivePiece(null);
     setQuestionIndex(0);
@@ -1898,10 +2543,42 @@ Can you beat my score? Play ThinkFastBlast!`;
     setIntroCountdown(3);
 
     setGameState("intro");
-  }, []);
+  }, [customQuestions]);
 
   // Compose display board by overlaying the active piece
+  const animatedScore = useAnimatedNumber(totalScore);
+  const winStars = misses === 0 ? 3 : misses === 1 ? 2 : 1;
+  const nearWin = totalScore >= WIN_SCORE_TARGET - 60 && totalScore < WIN_SCORE_TARGET && PLAYABLE_STATES.has(gameState);
+
   const displayBoard = board.map((row) => [...row]);
+
+  // Ghost projection: show where the controllable piece will land so players can
+  // plan placements at a glance. Drawn under the live piece, never on occupied cells.
+  if (activePiece && gameState === "dropping" && isControllable) {
+    let ghostY = activePiece.y;
+    while (!checkCollision({ ...activePiece, y: ghostY + 1 }, board)) ghostY += 1;
+    if (ghostY > activePiece.y) {
+      activePiece.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (!value) return;
+          const boardY = ghostY + y;
+          const boardX = activePiece.x + x;
+          if (
+            boardY >= 0 && boardY < BOARD_HEIGHT &&
+            boardX >= 0 && boardX < BOARD_WIDTH &&
+            displayBoard[boardY][boardX] === null
+          ) {
+            displayBoard[boardY][boardX] = {
+              color: activePiece.color,
+              emoji: "",
+              isGhost: true,
+            };
+          }
+        });
+      });
+    }
+  }
+
   if (activePiece) {
     activePiece.shape.forEach((row, y) => {
       row.forEach((value, x) => {
@@ -1926,7 +2603,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   }
 
   const currentQuestion = shuffledQuestions[questionIndex];
-  const currentLevel = LEVELS.find((item) => item.id === level) || LEVELS[0];
+  const currentLevel = level === 99 ? { id: 99, name: "Custom Pack", theme: "Your custom trivia" } : (LEVELS.find((item) => item.id === level) || LEVELS[0]);
   const isMenu = gameState === "start";
   
   const panelClass = isMenu
@@ -1937,6 +2614,24 @@ Can you beat my score? Play ThinkFastBlast!`;
     <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
       <Confetti active={gameState === "level_win"} />
       <ScreenFlash tone={flashColor} />
+
+      {/* Achievement / record toasts */}
+      {achievementToasts.length > 0 && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-[min(92vw,22rem)] pointer-events-none">
+          {achievementToasts.map((t) => (
+            <div key={t.id} className="achievement-toast w-full flex items-center gap-3 rounded-2xl border border-cyan-300/40 bg-slate-900/95 px-4 py-2.5 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
+              <span className="text-2xl leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]">{t.emoji}</span>
+              <span className="min-w-0">
+                <span className="block text-[10px] font-black uppercase tracking-[0.2em] text-cyan-300">
+                  {t.kind === "record" ? "Record" : "Achievement Unlocked"}
+                </span>
+                <span className="block text-sm font-black text-white leading-tight">{t.title}</span>
+                <span className="block text-[11px] font-semibold text-slate-400 leading-tight">{t.desc}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       
       {/* Global Session Controls */}
       <div className="fixed top-2.5 right-2.5 z-40 flex items-center gap-2">
@@ -2031,7 +2726,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         {!isMenu && gameState !== "intro" && (
           <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
             <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
-              <span className="text-slate-300">Lvl {level} | Score: <span className="text-cyan-400 text-lg">{totalScore}/{WIN_SCORE_TARGET}</span></span>
+              <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{WIN_SCORE_TARGET}</span></span>
               {windForce !== 0 && (
                 <span className="text-sky-300 font-bold animate-pulse text-xs flex items-center gap-1">
                   💨 Wind: {windForce > 0 ? "👉 Right" : "👈 Left"}
@@ -2042,11 +2737,23 @@ Can you beat my score? Play ThinkFastBlast!`;
                   🔥 Streak: {correctStreak}
                 </span>
               )}
-              <span className="text-red-400">Strikes: {misses}/{STRIKES_ALLOWED}</span>
+              <span className="text-red-400 flex items-center gap-0.5" aria-label={`Strikes ${misses} of ${STRIKES_ALLOWED}`}>
+                {Array.from({ length: STRIKES_ALLOWED }).map((_, i) => (
+                  <span key={i} className={i < misses ? "strike-heart strike-heart-lost" : "strike-heart"}>
+                    {i < misses ? "🖤" : "❤️"}
+                  </span>
+                ))}
+              </span>
             </div>
 
+            {nearWin && (
+              <div className="match-point-banner game-board-width">
+                🎯 MATCH POINT — {WIN_SCORE_TARGET - totalScore} to win!
+              </div>
+            )}
+
             <div
-              className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? "animate-shake" : ""}`}
+              className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? "animate-shake" : ""} ${correctStreak >= 7 ? "combo-heat-3" : correctStreak >= 5 ? "combo-heat-2" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -2057,20 +2764,25 @@ Can you beat my score? Play ThinkFastBlast!`;
                   // Apply active styles including Matrix code values for Retro theme
                   let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
                   let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cellColorClass}`;
-                  
-                  if (cell?.isStone) cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
-                  if (cell?.isTNT) cellClass += " animate-glow-tnt";
-                  if (cell?.isDrill) cellClass += " animate-glow-drill";
-                  if (cell?.isLightning) cellClass += " animate-glow-lightning";
-                  
-                  if (isExploding) {
-                    cellClass += " transition-all duration-[400ms] ease-out scale-150 opacity-0 rotate-180 z-10 blur-sm";
-                  } else if (cell) {
-                    cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
+
+                  if (cell?.isGhost) {
+                    // Landing preview: faint, dashed outline of the live piece's resting spot.
+                    cellClass += " ghost-block";
+                  } else {
+                    if (cell?.isStone) cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
+                    if (cell?.isTNT) cellClass += " animate-glow-tnt";
+                    if (cell?.isDrill) cellClass += " animate-glow-drill";
+                    if (cell?.isLightning) cellClass += " animate-glow-lightning";
+
+                    if (isExploding) {
+                      cellClass += " transition-all duration-[400ms] ease-out scale-150 opacity-0 rotate-180 z-10 blur-sm";
+                    } else if (cell) {
+                      cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
+                    }
                   }
 
                   // Retro matrix digit renderer
-                  const displayText = (stats.activeTheme === "theme_retro" && cell && !cell.emoji && !cell.isStone)
+                  const displayText = (stats.activeTheme === "theme_retro" && cell && !cell.emoji && !cell.isStone && !cell.isGhost)
                     ? (((y + x) % 2 === 0) ? "0" : "1")
                     : cell?.emoji || "";
 
@@ -2080,6 +2792,17 @@ Can you beat my score? Play ThinkFastBlast!`;
                     </div>
                   );
                 })
+              )}
+
+              {electrify && (
+                <div className="board-electrify" aria-hidden="true">
+                  <div className="board-electrify-arc" />
+                  <span className="bolt" style={{ left: "12%", animationDelay: "0ms" }} />
+                  <span className="bolt" style={{ left: "30%", animationDelay: "60ms" }} />
+                  <span className="bolt" style={{ left: "50%", animationDelay: "20ms" }} />
+                  <span className="bolt" style={{ left: "68%", animationDelay: "90ms" }} />
+                  <span className="bolt" style={{ left: "86%", animationDelay: "40ms" }} />
+                </div>
               )}
 
               <BoardParticlesCanvas explodingCells={explodingCells} correctStreak={correctStreak} />
@@ -2192,6 +2915,13 @@ Can you beat my score? Play ThinkFastBlast!`;
                     <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-ghost-button">
                       Glitch Codex
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => { playSFX("button"); setMenuTab("builder"); }}
+                      className="menu-ghost-button border-cyan-400/40 text-cyan-300 hover:text-white"
+                    >
+                      🎯 Question Builder
+                    </button>
                     <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-ghost-button">
                       How To Play
                     </button>
@@ -2206,18 +2936,42 @@ Can you beat my score? Play ThinkFastBlast!`;
 
                   <div className="menu-preview-wrap">
                     <MenuPreviewBoard />
-                    <div className="menu-preview-copy">
-                      <div className="menu-kicker">Current Run Pulse</div>
-                      <div className="menu-preview-score">25 / 500</div>
-                      <div className="menu-preview-meter">
-                        <span style={{ width: "22%" }} />
-                      </div>
-                      <div className="menu-preview-chips">
-                        <span>Perfect</span>
-                        <span>Combo Charge</span>
-                        <span>Blast Ready</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const pulseLevelObj = LEVELS.find((l) => l.id === maxUnlockedLevel) || LEVELS[0];
+                      const bestScoreVal = stats.highScores[maxUnlockedLevel] || 0;
+                      const pulsePercentage = Math.min(100, Math.round((bestScoreVal / 500) * 100));
+                      return (
+                        <div className="menu-preview-copy">
+                          <div className="menu-kicker">Lvl {pulseLevelObj.id} Best Run</div>
+                          <div className="menu-preview-score">{bestScoreVal} / 500</div>
+                          <div className="menu-preview-meter">
+                            <span style={{ width: `${pulsePercentage}%` }} />
+                          </div>
+                          <div className="menu-preview-chips">
+                            {bestScoreVal >= 500 ? (
+                              <>
+                                <span className="border-green-500/20 bg-green-500/10 text-green-300">✓ Cleared</span>
+                                <span className="border-cyan-500/20 bg-cyan-500/10 text-cyan-300">Master</span>
+                              </>
+                            ) : bestScoreVal >= 300 ? (
+                              <>
+                                <span className="border-yellow-500/20 bg-yellow-500/10 text-yellow-300">Expert</span>
+                                <span className="border-blue-500/20 bg-blue-500/10 text-blue-300">Blast Ready</span>
+                              </>
+                            ) : bestScoreVal >= 100 ? (
+                              <>
+                                <span className="border-indigo-500/20 bg-indigo-500/10 text-indigo-300">Challenger</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="border-slate-700/40 bg-slate-800/40 text-slate-400">Ready</span>
+                                <span className="border-slate-700/40 bg-slate-800/40 text-slate-400">No Runs</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </section>
 
@@ -2285,6 +3039,32 @@ Can you beat my score? Play ThinkFastBlast!`;
                           </button>
                         );
                       })}
+                      {/* Special Custom Level Card */}
+                      {customQuestions.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => startLevel(99)}
+                          className="level-card level-card-showcase level-card-unlocked border border-cyan-400 bg-cyan-950/20 shadow-[0_0_12px_rgba(34,211,238,0.25)] hover:border-cyan-300"
+                        >
+                          <span className="level-card-number text-cyan-400">🎯</span>
+                          <span className="level-card-meta text-cyan-300">{customQuestions.length} Qs</span>
+                          <span className="level-card-title text-white">Custom Pack</span>
+                          <span className="level-card-theme text-cyan-200">Your personalized quiz</span>
+                          <span className="level-card-best">Play Pack</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="level-card level-card-showcase level-card-locked opacity-50 cursor-not-allowed"
+                        >
+                          <span className="level-card-number text-slate-500">🎯</span>
+                          <span className="level-card-meta text-slate-500">0 Qs</span>
+                          <span className="level-card-title text-slate-400">Custom Pack</span>
+                          <span className="level-card-theme text-slate-500">Empty Pack</span>
+                          <span className="level-card-lock text-xs text-amber-500/80">Builder Empty</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -2414,6 +3194,482 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </button>
               </div>
             </div>
+          ) : menuTab === "builder" ? (
+            <div className="menu-panel w-full max-w-5xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10 overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-4 shrink-0">
+                <div className="text-left">
+                  <h2 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-400">
+                    🎯 Custom Question Builder
+                  </h2>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    Personalize ThinkFast Blast with your own topics, lessons, or homework trivia
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { playSFX("button"); setMenuTab("levels"); }}
+                  className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2 px-5 rounded-xl text-xs border border-slate-600 shadow-md transition-colors"
+                >
+                  Back to Levels
+                </button>
+              </div>
+
+              {/* Columns Container */}
+              <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-6 overflow-y-auto md:overflow-visible">
+                {/* Left Column: Creator / Uploader */}
+                <div className="flex-1 min-h-0 flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4">
+                  {/* Sub-tabs: Manual vs Document Upload */}
+                  <div className="flex gap-2 mb-4 bg-slate-950/60 p-1 rounded-xl border border-slate-800 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => { playSFX("button"); setBuilderSubTab("manual"); }}
+                      className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-colors ${
+                        builderSubTab === "manual"
+                          ? "bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      ✍ Create Manually
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { playSFX("button"); setBuilderSubTab("upload"); }}
+                      className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-colors ${
+                        builderSubTab === "upload"
+                          ? "bg-cyan-500 text-slate-950 shadow-[0_0_12px_rgba(34,211,238,0.3)]"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                    >
+                      📂 Document AI Generator
+                    </button>
+                  </div>
+
+                  {/* Sub-tab content */}
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+                    {builderSubTab === "manual" ? (
+                      /* Manual Creation Form */
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!manualQuestion.trim() || manualOptions.some(o => !o.trim())) {
+                            alert("Please fill in the question and all four options.");
+                            return;
+                          }
+                          const newQ = {
+                            q: manualQuestion.trim(),
+                            options: manualOptions.map(o => o.trim()),
+                            answer: manualAnswer
+                          };
+                          setCustomQuestions(prev => [...prev, newQ]);
+                          setManualQuestion("");
+                          setManualOptions(["", "", "", ""]);
+                          setManualAnswer(0);
+                          playSFX("correct");
+                        }}
+                        className="space-y-4 text-left"
+                      >
+                        <div>
+                          <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 block">Question Text</label>
+                          <textarea
+                            value={manualQuestion}
+                            onChange={(e) => setManualQuestion(e.target.value)}
+                            placeholder="e.g. Which planet is known as the Ringed Planet?"
+                            className="w-full bg-slate-950/60 border border-slate-700/60 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-colors text-sm"
+                            rows={3}
+                            required
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {manualOptions.map((opt, idx) => (
+                            <div key={idx}>
+                              <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 block">
+                                Option {String.fromCharCode(65 + idx)} {idx === manualAnswer ? <span className="text-green-400 font-black">(Correct)</span> : ""}
+                              </label>
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={(e) => {
+                                  const next = [...manualOptions];
+                                  next[idx] = e.target.value;
+                                  setManualOptions(next);
+                                }}
+                                placeholder={`Answer Option ${String.fromCharCode(65 + idx)}`}
+                                className={`w-full bg-slate-950/60 border rounded-xl px-4 py-2 text-white focus:outline-none transition-colors text-sm ${
+                                  idx === manualAnswer ? "border-green-500/50 focus:border-green-400" : "border-slate-700/60 focus:border-cyan-400"
+                                }`}
+                                required
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2 border-t border-slate-800">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">Select Correct Answer:</span>
+                            <div className="flex gap-1 bg-slate-950/60 p-1 rounded-lg border border-slate-800">
+                              {[0, 1, 2, 3].map((idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => setManualAnswer(idx)}
+                                  className={`w-8 h-8 rounded font-black text-xs transition-colors ${
+                                    manualAnswer === idx
+                                      ? "bg-green-500 text-slate-950 shadow-[0_0_8px_rgba(34,197,94,0.3)]"
+                                      : "text-slate-400 hover:text-white"
+                                  }`}
+                                >
+                                  {String.fromCharCode(65 + idx)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black py-2.5 px-6 rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 text-xs font-black uppercase tracking-widest text-center"
+                          >
+                            ➕ Add Question
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      /* Document Upload panel */
+                      <div className="space-y-4 text-left">
+                        {generatedQuestions.length === 0 && !fileUploading ? (
+                          <div
+                            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                            onDragLeave={() => setIsDragging(false)}
+                            onDrop={handleFileDrop}
+                            className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors flex flex-col items-center justify-center min-h-[220px] ${
+                              isDragging
+                                ? "border-cyan-400 bg-cyan-950/20 text-cyan-300"
+                                : "border-slate-700/80 bg-slate-950/40 text-slate-400 hover:border-slate-600"
+                            }`}
+                          >
+                            <input
+                              type="file"
+                              accept=".txt,.pdf,.docx"
+                              onChange={handleFileSelect}
+                              className="hidden"
+                              id="builder-file-upload"
+                            />
+                            <label htmlFor="builder-file-upload" className="cursor-pointer flex flex-col items-center">
+                              <span className="text-4xl mb-3">📁</span>
+                              <span className="text-sm font-bold text-white mb-1">Drag &amp; drop study guide or notes here</span>
+                              <span className="text-xs text-slate-400 mb-3">Or click to browse your files</span>
+                              <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest border border-slate-800 px-3 py-1 rounded bg-slate-900/60">PDF, DOCX, TXT (Max 5MB)</span>
+                            </label>
+                          </div>
+                        ) : fileUploading ? (
+                          /* High-tech AI Processing screen */
+                          <div className="border border-cyan-500/20 rounded-2xl p-6 bg-slate-950/40 text-center flex flex-col items-center justify-center min-h-[220px]">
+                            <div className="relative w-16 h-16 mb-4 flex items-center justify-center">
+                              <div className="absolute inset-0 border-4 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin" />
+                              <span className="text-2xl animate-pulse">🧠</span>
+                            </div>
+                            <h3 className="text-sm font-black text-cyan-400 uppercase tracking-widest animate-pulse">AI Extracting Trivia...</h3>
+                            <p className="text-xs text-slate-400 mt-1 font-semibold">Reading document &amp; generating multiple choice questions</p>
+                            <div className="w-48 bg-slate-900 rounded-full h-1.5 mt-4 overflow-hidden border border-slate-800">
+                              <div className="bg-cyan-500 h-full transition-all duration-200" style={{ width: `${generationProgress}%` }} />
+                            </div>
+                          </div>
+                        ) : (
+                          /* Review Generated Questions List */
+                          <div className="space-y-4">
+                            <div className="flex items-center justify-between bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                              <div>
+                                <h4 className="text-xs font-black text-white uppercase tracking-wider">Review Generated Questions</h4>
+                                <p className="text-[10px] text-slate-500 font-semibold mt-0.5">Edit and approve questions to add them to your active pack.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => { playSFX("button"); setGeneratedQuestions([]); }}
+                                className="text-[10px] text-red-400 hover:text-red-300 font-black uppercase tracking-wider"
+                              >
+                                Discard All
+                              </button>
+                            </div>
+
+                            <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                              {generatedQuestions.map((gQ, idx) => (
+                                <div key={idx} className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
+                                  <div>
+                                    <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 mb-1 block">Question {idx + 1}</label>
+                                    <input
+                                      type="text"
+                                      value={gQ.q}
+                                      onChange={(e) => {
+                                        const next = [...generatedQuestions];
+                                        next[idx].q = e.target.value;
+                                        setGeneratedQuestions(next);
+                                      }}
+                                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {gQ.options.map((opt, oIdx) => (
+                                      <div key={oIdx}>
+                                        <label className="text-[8px] font-bold text-slate-500 block mb-0.5">Option {String.fromCharCode(65 + oIdx)}</label>
+                                        <input
+                                          type="text"
+                                          value={opt}
+                                          onChange={(e) => {
+                                            const next = [...generatedQuestions];
+                                            next[idx].options[oIdx] = e.target.value;
+                                            setGeneratedQuestions(next);
+                                          }}
+                                          className={`w-full bg-slate-900 border rounded-lg px-2 py-1 text-xs text-white focus:outline-none ${
+                                            oIdx === gQ.answer ? "border-green-500/40" : "border-slate-800"
+                                          }`}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <div className="flex items-center justify-between pt-2 border-t border-slate-900/60">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[9px] font-bold text-slate-500 uppercase">Correct Answer:</span>
+                                      <select
+                                        value={gQ.answer}
+                                        onChange={(e) => {
+                                          const next = [...generatedQuestions];
+                                          next[idx].answer = parseInt(e.target.value);
+                                          setGeneratedQuestions(next);
+                                        }}
+                                        className="bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-cyan-400"
+                                      >
+                                        <option value={0}>A</option>
+                                        <option value={1}>B</option>
+                                        <option value={2}>C</option>
+                                        <option value={3}>D</option>
+                                      </select>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!gQ.q.trim() || gQ.options.some(o => !o.trim())) {
+                                            alert("Please fill all fields.");
+                                            return;
+                                          }
+                                          setCustomQuestions(prev => [...prev, gQ]);
+                                          setGeneratedQuestions(prev => prev.filter((_, i) => i !== idx));
+                                          playSFX("correct");
+                                        }}
+                                        className="bg-green-500 text-slate-950 font-black text-[10px] px-2.5 py-1 rounded hover:bg-green-400 transition-colors"
+                                      >
+                                        ✓ Approve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setGeneratedQuestions(prev => prev.filter((_, i) => i !== idx));
+                                          playSFX("button");
+                                        }}
+                                        className="text-red-400 hover:text-red-300 font-bold text-[10px] px-2 py-1"
+                                      >
+                                        Discard
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right Column: Active Pack List */}
+                <div className="w-full md:w-[360px] shrink-0 flex flex-col bg-slate-900/50 border border-slate-700/50 rounded-2xl p-4 min-h-0">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2 shrink-0">
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider">
+                      My Question Pack ({customQuestions.length})
+                    </h3>
+                    {customQuestions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("Remove all questions from this custom pack?")) {
+                            setCustomQuestions([]);
+                            playSFX("button");
+                          }
+                        }}
+                        className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase tracking-wider"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  {customQuestions.length === 0 ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-slate-800 border-dashed rounded-xl bg-slate-950/20">
+                      <span className="text-3xl mb-2 opacity-50">🎯</span>
+                      <h4 className="text-xs font-bold text-slate-400 uppercase">Pack is Empty</h4>
+                      <p className="text-[10px] text-slate-500 mt-1 font-semibold leading-normal">
+                        Create questions manually or upload a document to get started!
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                      {customQuestions.map((item, idx) => (
+                        <div key={idx}>
+                          {editingIndex === idx ? (
+                            <div className="p-3 bg-slate-950/60 border border-cyan-500/40 rounded-xl text-left space-y-3">
+                              <div className="text-[10px] font-black uppercase text-cyan-400">Edit Question</div>
+                              <textarea
+                                value={editQText}
+                                onChange={(e) => setEditQText(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-cyan-400"
+                                rows={2}
+                              />
+                              <div className="space-y-1.5">
+                                {editQOptions.map((opt, oIdx) => (
+                                  <input
+                                    key={oIdx}
+                                    type="text"
+                                    value={opt}
+                                    onChange={(e) => {
+                                      const next = [...editQOptions];
+                                      next[oIdx] = e.target.value;
+                                      setEditQOptions(next);
+                                    }}
+                                    className={`w-full bg-slate-900 border rounded-lg px-2 py-1 text-xs text-white focus:outline-none ${
+                                      oIdx === editQAnswer ? "border-green-500/40" : "border-slate-800"
+                                    }`}
+                                    placeholder={`Option ${String.fromCharCode(65 + oIdx)}`}
+                                  />
+                                ))}
+                              </div>
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-900">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase">Answer:</span>
+                                  <select
+                                    value={editQAnswer}
+                                    onChange={(e) => setEditQAnswer(parseInt(e.target.value))}
+                                    className="bg-slate-900 border border-slate-800 rounded px-1.5 py-0.5 text-xs text-cyan-400"
+                                  >
+                                    <option value={0}>A</option>
+                                    <option value={1}>B</option>
+                                    <option value={2}>C</option>
+                                    <option value={3}>D</option>
+                                  </select>
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!editQText.trim() || editQOptions.some(o => !o.trim())) {
+                                        alert("Please fill all fields.");
+                                        return;
+                                      }
+                                      const nextQuestions = [...customQuestions];
+                                      nextQuestions[idx] = { q: editQText, options: editQOptions, answer: editQAnswer };
+                                      setCustomQuestions(nextQuestions);
+                                      setEditingIndex(null);
+                                      playSFX("correct");
+                                    }}
+                                    className="text-[10px] font-black uppercase text-green-400 hover:text-green-300"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingIndex(null)}
+                                    className="text-[10px] font-black uppercase text-slate-400 hover:text-white"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex flex-col text-left hover:border-slate-700/50 transition-colors">
+                              <span className="text-xs font-bold text-white mb-2 leading-normal">
+                                {idx + 1}. {item.q}
+                              </span>
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {item.options.map((opt, oIdx) => (
+                                  <div
+                                    key={oIdx}
+                                    className={`px-2 py-1 text-[10px] font-bold rounded border truncate ${
+                                      oIdx === item.answer
+                                        ? "bg-green-500/10 text-green-400 border-green-500/30"
+                                        : "bg-slate-900 text-slate-400 border-slate-800"
+                                    }`}
+                                  >
+                                    {String.fromCharCode(65 + oIdx)}. {opt}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex justify-end gap-3 mt-3 pt-2 border-t border-slate-900/60">
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(idx)}
+                                  className="text-[10px] font-black uppercase text-cyan-400 hover:text-cyan-300 transition-colors"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCustomQuestions(prev => prev.filter((_, i) => i !== idx));
+                                    playSFX("button");
+                                  }}
+                                  className="text-[10px] font-black uppercase text-red-400 hover:text-red-300 transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Footer actions for Custom Pack */}
+                  <div className="mt-4 pt-3 border-t border-slate-800 shrink-0 space-y-3 text-left">
+                    {customQuestions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => startLevel(99)}
+                        className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-black py-3 px-4 rounded-xl shadow-[0_0_15px_rgba(6,182,212,0.2)] hover:scale-102 active:scale-98 transition text-xs font-black uppercase tracking-widest text-center"
+                      >
+                        🎯 Play Custom Pack
+                      </button>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleExport}
+                        disabled={customQuestions.length === 0}
+                        className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider border transition text-center ${
+                          customQuestions.length > 0
+                            ? "bg-slate-950/60 hover:bg-slate-900 text-cyan-400 border-cyan-500/20"
+                            : "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed border-dashed"
+                        }`}
+                      >
+                        📥 Export Pack
+                      </button>
+                      <label className="flex-1 py-2 rounded-lg font-black text-[10px] uppercase tracking-wider border bg-slate-950/60 hover:bg-slate-900 text-purple-400 border-purple-500/20 text-center cursor-pointer">
+                        📤 Import Pack
+                        <input
+                          type="file"
+                          accept=".json"
+                          onChange={handleImport}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
             // Rules/Instructions Tab
             <div className="menu-panel w-full max-w-3xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10">
@@ -2465,13 +3721,15 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   Question {questionIndex + 1}
                 </h2>
+                <QuickAnswerTimer startTime={questionStartTime} active={gameState === "quiz"} />
                 <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
                   {currentQuestion.q}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
                   {currentQuestion.options.map((option, index) => (
-                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
-                      {option}
+                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button group flex items-center gap-2.5 bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] active:scale-95 transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
+                      <span className="answer-badge">{String.fromCharCode(65 + index)}</span>
+                      <span className="min-w-0">{option}</span>
                     </button>
                   ))}
                 </div>
@@ -2494,8 +3752,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
                   {currentQuestion.options.map((option, index) => (
-                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button bg-slate-700/80 hover:bg-gradient-to-r hover:from-red-600 hover:to-orange-500 hover:scale-[1.02] transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-red-500/50">
-                      {option}
+                    <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button group flex items-center gap-2.5 bg-slate-700/80 hover:bg-gradient-to-r hover:from-red-600 hover:to-orange-500 hover:scale-[1.02] active:scale-95 transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-red-500/50">
+                      <span className="answer-badge answer-badge-danger">{String.fromCharCode(65 + index)}</span>
+                      <span className="min-w-0">{option}</span>
                     </button>
                   ))}
                 </div>
@@ -2558,8 +3817,24 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">
                   Level Complete!
                 </h2>
+
+                <div className="flex items-center gap-2 mb-3" aria-label={`${winStars} of 3 stars`}>
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className={`win-star ${i < winStars ? "win-star-earned" : "win-star-empty"}`}
+                      style={{ animationDelay: `${i * 220}ms` }}
+                    >
+                      {i < winStars ? "⭐" : "☆"}
+                    </span>
+                  ))}
+                  <span className="ml-2 text-xs font-black uppercase tracking-widest text-slate-400">
+                    {winStars === 3 ? "Flawless" : winStars === 2 ? "Great" : "Cleared"}
+                  </span>
+                </div>
+
                 <p className="text-base md:text-xl text-slate-300 mb-4 font-medium">
-                  You reached {WIN_SCORE_TARGET} points on {currentLevel.name}!
+                  You reached <span className="score-readout">{animatedScore}</span> points on {currentLevel.name}!
                 </p>
                 
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-700/50 mb-5 text-xs md:text-sm font-bold flex items-center gap-1.5 shadow-inner">
