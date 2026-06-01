@@ -25,10 +25,16 @@ import {
   startArpeggiator,
   stopArpeggiator,
   setAudioEnabled,
+  setMasterVolume,
+  setMusicVolume,
+  setSFXVolume,
+  getVolumeSettings,
 } from "./game/audio";
 import Confetti from "./game/Confetti";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
+const PLAYABLE_STATES = new Set(["quiz", "dropping", "transition", "resolving", "strike_recovery"]);
+const FLASH_DURATION_MS = 260;
 
 const SHOP_ITEMS = [
   { id: "theme_cyberpunk", name: "Cyberpunk Neon Theme", desc: "Adds glowing retro-future styling and cyber shadows to blocks", cost: 100, type: "theme" },
@@ -474,6 +480,213 @@ function BrainSparksCanvas() {
   return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none rounded-2xl" />;
 }
 
+// A Canvas component for drawing block explosions and sparks
+function BoardParticlesCanvas({ explodingCells, correctStreak }) {
+  const canvasRef = useRef(null);
+  const particlesRef = useRef([]);
+
+  useEffect(() => {
+    if (!explodingCells || explodingCells.length === 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const cellW = width / 10;
+    const cellH = height / 16;
+
+    explodingCells.forEach((cell) => {
+      const cx = (cell.x + 0.5) * cellW;
+      const cy = (cell.y + 0.5) * cellH;
+
+      const count = 10;
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 3 + 1;
+        particlesRef.current.push({
+          x: cx,
+          y: cy,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 0.5,
+          color: Math.random() < 0.5 ? "#22d3ee" : "#f59e0b",
+          size: Math.random() * 3 + 1.5,
+          alpha: 1.0,
+          decay: Math.random() * 0.04 + 0.02,
+        });
+      }
+    });
+  }, [explodingCells]);
+
+  const prevStreakRef = useRef(correctStreak);
+  useEffect(() => {
+    if (correctStreak > prevStreakRef.current && correctStreak >= 3) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const width = canvas.width;
+      const height = canvas.height;
+      const count = 25;
+      for (let i = 0; i < count; i++) {
+        particlesRef.current.push({
+          x: Math.random() * width,
+          y: height,
+          vx: (Math.random() - 0.5) * 3,
+          vy: -Math.random() * 4 - 2,
+          color: "#fbbf24",
+          size: Math.random() * 4 + 2,
+          alpha: 1.0,
+          decay: Math.random() * 0.03 + 0.015,
+        });
+      }
+    }
+    prevStreakRef.current = correctStreak;
+  }, [correctStreak]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animationId;
+    const updateAndDraw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const particles = particlesRef.current;
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= p.decay;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      animationId = requestAnimationFrame(updateAndDraw);
+    };
+
+    const resize = () => {
+      if (!canvas) return;
+      canvas.width = canvas.offsetWidth || 300;
+      canvas.height = canvas.offsetHeight || 480;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    updateAndDraw();
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full pointer-events-none z-30"
+    />
+  );
+}
+
+function ScreenFlash({ tone }) {
+  if (!tone) return null;
+  return <div className={`screen-flash screen-flash-${tone}`} aria-hidden="true" />;
+}
+
+function RunTelemetryPanel({ board, correctStreak, totalScore, misses, activePiece, isControllable }) {
+  const occupiedCells = board.reduce(
+    (count, row) => count + row.reduce((rowCount, cell) => rowCount + (cell ? 1 : 0), 0),
+    0
+  );
+  const targetProgress = Math.min(100, Math.round((totalScore / WIN_SCORE_TARGET) * 100));
+  const boardPressure = Math.min(100, Math.round((occupiedCells / (BOARD_WIDTH * BOARD_HEIGHT)) * 100));
+  const chargeTarget = correctStreak < 3 ? 3 : correctStreak < 5 ? 5 : correctStreak < 7 ? 7 : 10;
+  const chargeLabel = correctStreak < 3
+    ? "TNT Charge"
+    : correctStreak < 5
+      ? "Drill Charge"
+      : correctStreak < 7
+        ? "Lightning Charge"
+        : "Overdrive Loop";
+  const chargeProgress = Math.min(100, Math.round((correctStreak / chargeTarget) * 100));
+  const pieceLabel = activePiece?.isTNT
+    ? "TNT"
+    : activePiece?.isDrill
+      ? "Drill"
+      : activePiece?.isLightning
+        ? "Lightning"
+        : activePiece?.isSlime
+          ? "Slime"
+          : activePiece?.isCatalystBomb
+            ? "Catalyst"
+            : activePiece?.isWildcard
+              ? "Wildcard"
+              : isControllable
+                ? "Clean Block"
+                : "Stone";
+
+  const meters = [
+    { label: "Score Run", value: `${totalScore}/${WIN_SCORE_TARGET}`, progress: targetProgress, tone: "cyan" },
+    { label: chargeLabel, value: `${correctStreak}x`, progress: chargeProgress, tone: "amber" },
+    { label: "Board Heat", value: `${boardPressure}%`, progress: boardPressure, tone: boardPressure > 55 ? "red" : "emerald" },
+    { label: "Strike Risk", value: `${misses}/${STRIKES_ALLOWED}`, progress: (misses / STRIKES_ALLOWED) * 100, tone: "red" },
+  ];
+
+  return (
+    <div className="hidden md:grid w-full max-w-xl grid-cols-2 gap-3 mt-6" aria-label="Run telemetry">
+      <div className="col-span-2 rounded-xl border border-cyan-400/20 bg-slate-950/45 p-3 shadow-inner">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-300">
+            Active Piece
+          </span>
+          <span className={`text-sm font-black ${isControllable ? "text-emerald-300" : "text-red-300"}`}>
+            {pieceLabel}
+          </span>
+        </div>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className={`h-full rounded-full ${isControllable ? "bg-emerald-400" : "bg-red-500"} telemetry-pulse`}
+            style={{ width: isControllable ? "72%" : "100%" }}
+          />
+        </div>
+      </div>
+
+      {meters.map((meter) => (
+        <div key={meter.label} className="rounded-xl border border-white/10 bg-slate-950/35 p-3 shadow-inner">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+              {meter.label}
+            </span>
+            <span className="text-xs font-black text-white">
+              {meter.value}
+            </span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className={`h-full rounded-full telemetry-meter telemetry-meter-${meter.tone}`}
+              style={{ width: `${meter.progress}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // -------------------------------------------------------------------------
 // Main App Component
 // -------------------------------------------------------------------------
@@ -495,6 +708,62 @@ export default function App() {
   const [isControllable, setIsControllable] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [explodingCells, setExplodingCells] = useState([]);
+
+  // Immersion & volume settings states
+  const [maxStreak, setMaxStreak] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [flashColor, setFlashColor] = useState(null);
+  const [shareFeedback, setShareFeedback] = useState("");
+
+  const [masterVol, setMasterVolState] = useState(() => getVolumeSettings().masterVolume);
+  const [musicVol, setMusicVolState] = useState(() => getVolumeSettings().musicVolume);
+  const [sfxVol, setSfxVolState] = useState(() => getVolumeSettings().sfxVolume);
+
+  const handleMasterVolChange = (val) => {
+    const next = Math.min(1, Math.max(0, Number(val)));
+    setMasterVolState(next);
+    setMasterVolume(next);
+  };
+  const handleMusicVolChange = (val) => {
+    const next = Math.min(1, Math.max(0, Number(val)));
+    setMusicVolState(next);
+    setMusicVolume(next);
+  };
+  const handleSfxVolChange = (val) => {
+    const next = Math.min(1, Math.max(0, Number(val)));
+    setSfxVolState(next);
+    setSFXVolume(next);
+  };
+
+  const handleShare = () => {
+    playSFX("button");
+    const currentLvl = LEVELS.find((item) => item.id === level) || LEVELS[0];
+    const statusText = gameState === "level_win" ? "🏆 Level Cleared!" : "💀 Game Over";
+    const starsEmoji = maxStreak >= 7 ? "🔥⚡🏆" : maxStreak >= 5 ? "🌀🔥" : maxStreak >= 3 ? "💣" : "⭐";
+    const shareText = `🎮 ThinkFastBlast React Game 🎮
+${statusText}
+🔥 Level ${level}: ${currentLvl.name}
+🏆 Score: ${totalScore} / ${WIN_SCORE_TARGET}
+💡 Trivia Correct: ${questionsAnsweredThisLevel}
+🔥 Max Streak: ${maxStreak} ${starsEmoji}
+👾 Glitches Earned: ${gameState === "level_win" ? Math.floor(totalScore / 10) + (level * 10) : Math.max(1, Math.floor(totalScore / 20) + (level * 2))}
+Can you beat my score? Play ThinkFastBlast!`;
+
+    const copyText = navigator.clipboard?.writeText
+      ? navigator.clipboard.writeText(shareText)
+      : Promise.reject(new Error("Clipboard API unavailable"));
+
+    copyText
+      .then(() => {
+        setShareFeedback("Copied to Clipboard! 📋");
+        setTimeout(() => setShareFeedback(""), 3000);
+      })
+      .catch((err) => {
+        console.error("Failed to copy text: ", err);
+        setShareFeedback("Copy failed ❌");
+        setTimeout(() => setShareFeedback(""), 3000);
+      });
+  };
 
   // Redesign States
   const [correctStreak, setCorrectStreak] = useState(0);
@@ -520,6 +789,8 @@ export default function App() {
     }
   });
 
+  const canPause = PLAYABLE_STATES.has(gameState);
+
   // Timers and keyboard events need the newest state without being rebuilt on
   // every render. This ref mirrors the live game state for those callbacks.
   const stateRef = useRef({
@@ -527,6 +798,7 @@ export default function App() {
     activePiece,
     gameState,
     isControllable,
+    isPaused,
     level,
     correctStreak,
     questionIndex,
@@ -535,6 +807,15 @@ export default function App() {
     questionsSinceLastRise,
   });
   const touchStartRef = useRef(null);
+  const flashTimerRef = useRef(null);
+
+  const triggerFlash = useCallback((tone) => {
+    setFlashColor(tone);
+    window.clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => setFlashColor(null), FLASH_DURATION_MS);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
 
   useEffect(() => {
     stateRef.current = {
@@ -542,6 +823,7 @@ export default function App() {
       activePiece,
       gameState,
       isControllable,
+      isPaused,
       level,
       correctStreak,
       questionIndex,
@@ -549,7 +831,7 @@ export default function App() {
       misses,
       questionsSinceLastRise,
     };
-  }, [board, activePiece, gameState, isControllable, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise]);
 
   useEffect(() => {
     localStorage.setItem(PROGRESS_STORAGE_KEY, String(maxUnlockedLevel));
@@ -615,8 +897,10 @@ export default function App() {
   // Hoisted callbacks to ensure they are declared before useEffect bindings
   // Memoized game end handler to save stats, high scores, glitches and trigger audio
   const handleGameEnd = useCallback((isWin, finalScore) => {
+    setIsPaused(false);
     if (isWin) {
       playSFX("level_win");
+      triggerFlash("win");
       setGameState("level_win");
       if (level < FINAL_LEVEL_ID) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
       
@@ -640,12 +924,18 @@ export default function App() {
       setFeedback(`Victory! Earned ${glitchesEarned} Glitches.`);
     } else {
       playSFX("gameover");
+      triggerFlash("danger");
       setGameState("gameover");
       
       const glitchesEarned = Math.max(1, Math.floor(finalScore / 20) + (level * 2));
       setStats((prevStats) => {
+        const updatedHighScores = { ...prevStats.highScores };
+        const previousBest = updatedHighScores[level] || 0;
+        updatedHighScores[level] = Math.max(previousBest, finalScore);
+
         const newStats = {
           ...prevStats,
+          highScores: updatedHighScores,
           totalGames: prevStats.totalGames + 1,
           totalCorrect: prevStats.totalCorrect + questionsAnsweredThisLevel,
           totalQuestions: prevStats.totalQuestions + (questionIndex + 1),
@@ -656,7 +946,7 @@ export default function App() {
       });
       setFeedback(`Game Over! Earned ${glitchesEarned} Glitches.`);
     }
-  }, [level, questionsAnsweredThisLevel, questionIndex]);
+  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash]);
 
   // Floor rising hazard
   const triggerFloorRise = useCallback((currentBoard) => {
@@ -683,9 +973,10 @@ export default function App() {
     const nextBoard = [...currentBoard.slice(1), newRow];
     setBoard(nextBoard);
     triggerShake();
+    triggerFlash("danger");
     addFloatingText("FLOOR RISING! 🌋", 4, BOARD_HEIGHT - 2);
     setFeedback("Warning: Floor rising!");
-  }, [totalScore, handleGameEnd, addFloatingText]);
+  }, [totalScore, handleGameEnd, addFloatingText, triggerFlash]);
 
   // Timeout triggers
   const handleTimeOut = useCallback(() => {
@@ -693,6 +984,7 @@ export default function App() {
     if (!piece) return;
 
     playSFX("incorrect");
+    triggerFlash("danger");
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -734,7 +1026,7 @@ export default function App() {
       setGameState("transition");
       setTimeout(() => setGameState("resolving"), 1500);
     }
-  }, [level]);
+  }, [level, triggerFlash]);
 
   // -------------------------------------------------------------------------
   // Piece lifecycle
@@ -845,7 +1137,8 @@ export default function App() {
   // Controls
   // -------------------------------------------------------------------------
   const moveDown = useCallback(() => {
-    const { activePiece: piece, board: currentBoard } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isPaused: paused } = stateRef.current;
+    if (paused) return;
     if (!piece) return;
 
     const movedPiece = { ...piece, y: piece.y + 1 };
@@ -854,7 +1147,8 @@ export default function App() {
   }, [lockPiece]);
 
   const moveHorizontal = useCallback((dir) => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
     if (!piece || !canControl || state !== "dropping") return;
 
     const movedPiece = { ...piece, x: piece.x + dir };
@@ -867,20 +1161,26 @@ export default function App() {
   }, [lockPiece, addFloatingText]);
 
   const rotatePiece = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
     if (!piece || !canControl || state !== "dropping" || piece.isFruit) return;
 
     const rotatedPiece = { ...piece, shape: rotateShapeClockwise(piece.shape) };
-    if (!checkCollision(rotatedPiece, currentBoard)) setActivePiece(rotatedPiece);
+    if (!checkCollision(rotatedPiece, currentBoard)) {
+      playSFX("rotate");
+      setActivePiece(rotatedPiece);
+    }
   }, []);
 
   const hardDrop = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
     if (!piece || !canControl || state !== "dropping") return;
 
     let y = piece.y;
     while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
     const droppedPiece = { ...piece, y };
+    playSFX("drop");
     setActivePiece(droppedPiece);
 
     const nextBoard = currentBoard.map((row) => [...row]);
@@ -911,7 +1211,7 @@ export default function App() {
   }, []);
 
   const handleBoardTouchStart = (event) => {
-    if (stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
     event.preventDefault();
     const touch = event.touches[0];
     touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
@@ -920,7 +1220,7 @@ export default function App() {
   const handleBoardTouchEnd = (event) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    if (!start || stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
     event.preventDefault();
 
     const touch = event.changedTouches[0];
@@ -947,12 +1247,12 @@ export default function App() {
 
   // dropping speed
   useEffect(() => {
-    if (gameState !== "dropping") return undefined;
+    if (gameState !== "dropping" || isPaused) return undefined;
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
     const speed = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
-  }, [gameState, level, moveDown]);
+  }, [gameState, isPaused, level, moveDown]);
 
   // -------------------------------------------------------------------------
   // Board resolver: blasts, lines, combos, gravity, win/loss
@@ -1122,6 +1422,7 @@ export default function App() {
       
       queueMicrotask(() => triggerShake());
       queueMicrotask(() => setExplodingCells(cellsToClear));
+      queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning ? "blast" : "score"));
 
       const timer = setTimeout(() => {
         const afterClearBoard = board.map((row) => [...row]);
@@ -1187,10 +1488,15 @@ export default function App() {
     });
 
     return undefined;
-  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise]);
+  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash]);
 
   // Evolving Background Music Controller
   useEffect(() => {
+    if (isPaused) {
+      stopArpeggiator();
+      return undefined;
+    }
+
     if (["dropping", "quiz", "transition", "resolving", "intro", "strike_recovery"].includes(gameState)) {
       const totalCells = BOARD_WIDTH * BOARD_HEIGHT;
       const occupiedCount = board.flat().filter((cell) => cell !== null).length;
@@ -1212,11 +1518,11 @@ export default function App() {
         stopArpeggiator();
       }
     };
-  }, [board, level, gameState, isControllable, audioOn]);
+  }, [board, level, gameState, isControllable, audioOn, isPaused]);
 
   // Menu Music controller
   useEffect(() => {
-    if (gameState === "start" && audioOn) {
+    if (gameState === "start" && audioOn && !isPaused) {
       startArpeggiator(95, "major", 0.04, "menu");
     }
     return () => {
@@ -1224,16 +1530,23 @@ export default function App() {
         stopArpeggiator();
       }
     };
-  }, [gameState, audioOn]);
+  }, [gameState, audioOn, isPaused]);
 
   // Keyboard events
   useEffect(() => {
     const handleKeyDown = (event) => {
+      if ((event.key === "p" || event.key === "P" || event.key === "Escape") && PLAYABLE_STATES.has(stateRef.current.gameState)) {
+        event.preventDefault();
+        playSFX("button");
+        setIsPaused((paused) => !paused);
+        return;
+      }
+
       if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key) && stateRef.current.gameState === "dropping") {
         event.preventDefault();
       }
 
-      if (stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+      if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
 
       if (event.key === "ArrowLeft") moveHorizontal(-1);
       if (event.key === "ArrowRight") moveHorizontal(1);
@@ -1250,7 +1563,7 @@ export default function App() {
   // Level Wind Turbulence (Level 7 & 8)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (level !== 7 && level !== 8) return undefined;
+    if ((level !== 7 && level !== 8) || isPaused || !["quiz", "dropping"].includes(gameState)) return undefined;
 
     const timer = setInterval(() => {
       const choices = [-1, 0, 1];
@@ -1264,10 +1577,10 @@ export default function App() {
     }, 8000);
 
     return () => clearInterval(timer);
-  }, [level, gameState, addFloatingText]);
+  }, [level, gameState, isPaused, addFloatingText]);
 
   useEffect(() => {
-    if (gameState !== "dropping" || windForce === 0 || !activePiece) return undefined;
+    if (gameState !== "dropping" || isPaused || windForce === 0 || !activePiece) return undefined;
 
     const timer = setInterval(() => {
       const { activePiece: piece, board: currentBoard } = stateRef.current;
@@ -1280,13 +1593,13 @@ export default function App() {
     }, 2500);
 
     return () => clearInterval(timer);
-  }, [gameState, windForce, activePiece]);
+  }, [gameState, isPaused, windForce, activePiece]);
 
   // -------------------------------------------------------------------------
   // Slow fall during quiz phase (Thinking time limits)
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (gameState !== "quiz" || !activePiece) return undefined;
+    if (gameState !== "quiz" || isPaused || !activePiece) return undefined;
 
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
     const quizSpeed = Math.max(900, config.baseSpeed * 3);
@@ -1305,13 +1618,13 @@ export default function App() {
     }, quizSpeed);
 
     return () => clearInterval(timer);
-  }, [gameState, activePiece, level, handleTimeOut]);
+  }, [gameState, isPaused, activePiece, level, handleTimeOut]);
 
   // -------------------------------------------------------------------------
   // Strike Recovery Mode countdown timer
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (gameState !== "strike_recovery") return undefined;
+    if (gameState !== "strike_recovery" || isPaused) return undefined;
 
     const timer = setInterval(() => {
       setRecoveryTimer((prev) => {
@@ -1325,7 +1638,7 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, handleGameEnd, totalScore]);
+  }, [gameState, isPaused, handleGameEnd, totalScore]);
 
   // -------------------------------------------------------------------------
   // Level Intro / Loading Screen Countdown Hook
@@ -1355,7 +1668,9 @@ export default function App() {
   // Quiz answers handler
   // -------------------------------------------------------------------------
   const handleAnswer = useCallback((selectedIndex) => {
+    if (stateRef.current.isPaused) return;
     const question = shuffledQuestions[questionIndex];
+    if (!question) return;
     const correct = selectedIndex === question.answer;
     const { activePiece: piece, misses: currentMisses } = stateRef.current;
 
@@ -1363,6 +1678,7 @@ export default function App() {
     if (stateRef.current.gameState === "strike_recovery") {
       if (correct) {
         playSFX("correct");
+        triggerFlash("success");
         setMisses(2);
         const nextBoard = board.map((row, y) => {
           if (y < 3) return Array(BOARD_WIDTH).fill(null);
@@ -1386,10 +1702,14 @@ export default function App() {
       return;
     }
 
+    if (!piece) return;
+
     if (correct) {
       playSFX("correct");
+      triggerFlash("success");
       const nextStreak = correctStreak + 1;
       setCorrectStreak(nextStreak);
+      setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
       setTotalScore((score) => score + POINTS.CORRECT_ANSWER);
       setQuestionsAnsweredThisLevel((answered) => answered + 1);
 
@@ -1407,12 +1727,15 @@ export default function App() {
       // Check combo power-up conversion
       let newPiece = { ...piece };
       if (nextStreak === 3) {
+        playSFX("streak");
         newPiece = makePowerUp(piece, 3);
         addFloatingText("COMBO x3! TNT Block 💣", piece?.x || 5, piece?.y || 2);
       } else if (nextStreak === 5) {
+        playSFX("streak");
         newPiece = makePowerUp(piece, 5);
         addFloatingText("COMBO x5! Drill Block 🌀", piece?.x || 5, piece?.y || 2);
       } else if (nextStreak >= 7) {
+        playSFX("streak");
         newPiece = makePowerUp(piece, 7);
         addFloatingText("COMBO x7! Lightning Rod ⚡", piece?.x || 5, piece?.y || 2);
       }
@@ -1422,6 +1745,7 @@ export default function App() {
       setGameState("dropping");
     } else {
       playSFX("incorrect");
+      triggerFlash("danger");
       setCorrectStreak(0);
       const correctAnswer = question.options[question.answer];
       const nextMisses = currentMisses + 1;
@@ -1483,12 +1807,13 @@ export default function App() {
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
   // -------------------------------------------------------------------------
   const startLevel = useCallback((nextLevel) => {
+    playSFX("button");
     setLevel(nextLevel);
     setShuffledQuestions(shuffleArray(QUESTION_BANKS[nextLevel] || QUESTION_BANKS[1]));
     setBoard(createEmptyBoard());
@@ -1501,8 +1826,12 @@ export default function App() {
     setIsControllable(true);
     setFeedback("");
     setExplodingCells([]);
+    setFlashColor(null);
+    setShareFeedback("");
 
     setCorrectStreak(0);
+    setMaxStreak(0);
+    setIsPaused(false);
     setWindForce(0);
     setQuestionsSinceLastRise(0);
 
@@ -1549,9 +1878,23 @@ export default function App() {
   return (
     <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
       <Confetti active={gameState === "level_win"} />
+      <ScreenFlash tone={flashColor} />
       
-      {/* Global Speaker / Volume Switch */}
-      <div className="fixed top-2.5 right-2.5 z-40">
+      {/* Global Session Controls */}
+      <div className="fixed top-2.5 right-2.5 z-40 flex items-center gap-2">
+        {canPause && (
+          <button
+            type="button"
+            onClick={() => {
+              playSFX("button");
+              setIsPaused((paused) => !paused);
+            }}
+            className="p-2 bg-slate-800/90 border border-cyan-400/30 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-all text-sm flex items-center justify-center text-cyan-300 hover:text-white"
+            aria-label={isPaused ? "Resume game" : "Pause game"}
+          >
+            {isPaused ? "▶" : "Ⅱ"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -1565,11 +1908,70 @@ export default function App() {
         </button>
       </div>
 
+      {canPause && isPaused && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-400/30 bg-slate-900/95 p-5 shadow-[0_0_45px_rgba(34,211,238,0.2)]">
+            <div className="text-center mb-5">
+              <div className="text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">Run Paused</div>
+              <h2 className="text-3xl font-black text-white mt-1">Catch Your Breath</h2>
+              <p className="text-xs text-slate-400 mt-1 font-semibold">Press P or Escape to resume.</p>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-slate-700/70 bg-slate-950/60 p-4">
+              {[
+                ["Master", masterVol, handleMasterVolChange],
+                ["Music", musicVol, handleMusicVolChange],
+                ["SFX", sfxVol, handleSfxVolChange],
+              ].map(([label, value, onChange]) => (
+                <label key={label} className="grid grid-cols-[70px_1fr_42px] items-center gap-3 text-xs font-black uppercase tracking-wide text-slate-300">
+                  <span>{label}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                    className="accent-cyan-400"
+                  />
+                  <span className="text-right text-cyan-300">{Math.round(value * 100)}%</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  playSFX("button");
+                  setIsPaused(false);
+                }}
+                className="rounded-xl bg-cyan-400 px-4 py-3 text-sm font-black text-slate-950 shadow-[0_0_18px_rgba(34,211,238,0.35)] hover:bg-cyan-300 active:scale-95 transition"
+              >
+                Resume
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  playSFX("button");
+                  setIsPaused(false);
+                  setGameState("start");
+                  setMenuTab("levels");
+                }}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm font-black text-white hover:bg-slate-700 active:scale-95 transition"
+              >
+                Main Menu
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-5xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
         
         {/* Playable Game Grid View */}
         {!isMenu && gameState !== "intro" && (
-          <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10 animate-float" aria-label="Game board">
+          <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
             <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
               <span className="text-slate-300">Lvl {level} | Score: <span className="text-cyan-400 text-lg">{totalScore}/{WIN_SCORE_TARGET}</span></span>
               {windForce !== 0 && (
@@ -1622,6 +2024,8 @@ export default function App() {
                 })
               )}
 
+              <BoardParticlesCanvas explodingCells={explodingCells} correctStreak={correctStreak} />
+
               {/* Floating Combo / Points Feedback Popups */}
               {floatingTexts.map((t) => (
                 <div
@@ -1646,7 +2050,7 @@ export default function App() {
             </div>
 
             {gameState === "dropping" && isControllable && (
-              <div className="game-controls grid grid-cols-3 gap-1.5 mt-2 md:hidden">
+              <div className="game-controls grid grid-cols-3 gap-1.5 mt-2 lg:hidden">
                 <div />
                 <button type="button" onClick={rotatePiece} className="mobile-control-button">↑</button>
                 <div />
@@ -2033,10 +2437,10 @@ export default function App() {
                 </h3>
                 {isControllable ? (
                   <>
-                    <p className="md:hidden text-cyan-200 text-xs font-bold mb-1">
+                    <p className="lg:hidden text-cyan-200 text-xs font-bold mb-1">
                       Tap board to rotate. Swipe/drag to move. Swipe down to drop.
                     </p>
-                    <div className="hidden md:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
+                    <div className="hidden lg:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
                       <p className="flex items-center gap-3">
                         <kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">
                           Arrows
@@ -2056,6 +2460,14 @@ export default function App() {
                     </p>
                   </div>
                 )}
+                <RunTelemetryPanel
+                  board={board}
+                  correctStreak={correctStreak}
+                  totalScore={totalScore}
+                  misses={misses}
+                  activePiece={activePiece}
+                  isControllable={isControllable}
+                />
               </div>
             )}
 
@@ -2071,6 +2483,7 @@ export default function App() {
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-700/50 mb-5 text-xs md:text-sm font-bold flex items-center gap-1.5 shadow-inner">
                   <span className="text-purple-400">👾 Glitches Earned:</span>
                   <span className="text-white font-black">+{Math.floor(totalScore / 10) + (level * 10)}</span>
+                  <span className="text-yellow-300 ml-auto">Max Streak: {maxStreak}</span>
                 </div>
 
                 {level < FINAL_LEVEL_ID ? (
@@ -2081,6 +2494,9 @@ export default function App() {
                     <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
                       Main Menu
                     </button>
+                    <button type="button" onClick={handleShare} className="bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-cyan-500/40">
+                      Share Run
+                    </button>
                   </div>
                 ) : (
                   <div className="text-center md:text-left bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50 w-full">
@@ -2090,7 +2506,13 @@ export default function App() {
                     <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-black py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform">
                       Main Menu
                     </button>
+                    <button type="button" onClick={handleShare} className="ml-3 bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform border border-cyan-500/40">
+                      Share
+                    </button>
                   </div>
+                )}
+                {shareFeedback && (
+                  <p className="mt-3 text-xs font-black text-cyan-300">{shareFeedback}</p>
                 )}
               </div>
             )}
@@ -2117,6 +2539,7 @@ export default function App() {
                     <span className="text-white bg-slate-950/60 px-2 py-0.5 rounded border border-purple-500/20">
                       +{Math.max(1, Math.floor(totalScore / 20) + (level * 2))}
                     </span>
+                    <span className="text-yellow-300 ml-2">Max Streak: {maxStreak}</span>
                   </div>
                 </div>
                 
@@ -2127,7 +2550,13 @@ export default function App() {
                   <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
                     Main Menu
                   </button>
+                  <button type="button" onClick={handleShare} className="bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-cyan-500/40">
+                    Share Run
+                  </button>
                 </div>
+                {shareFeedback && (
+                  <p className="mt-3 text-xs font-black text-cyan-300">{shareFeedback}</p>
+                )}
               </div>
             )}
           </main>

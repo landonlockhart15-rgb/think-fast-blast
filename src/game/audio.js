@@ -9,6 +9,23 @@ let arpeggiatorInterval = null;
 let currentArpNote = 0;
 let audioEnabled = true;
 
+let masterVolume = 1.0;
+let musicVolume = 1.0;
+let sfxVolume = 1.0;
+
+const loadVolumeSettings = () => {
+  try {
+    const master = localStorage.getItem("think-fast-blast-master-volume");
+    const music = localStorage.getItem("think-fast-blast-music-volume");
+    const sfx = localStorage.getItem("think-fast-blast-sfx-volume");
+    if (master !== null) masterVolume = parseFloat(master);
+    if (music !== null) musicVolume = parseFloat(music);
+    if (sfx !== null) sfxVolume = parseFloat(sfx);
+  } catch (e) {
+    console.error("Failed to load volume settings", e);
+  }
+};
+
 const getAudioContext = () => window.AudioContext || window.webkitAudioContext;
 
 const connectNodeChain = (...nodes) => {
@@ -24,9 +41,13 @@ const ensureGraph = () => {
     masterGain = audioCtx.createGain();
     musicGain = audioCtx.createGain();
     sfxGain = audioCtx.createGain();
-    musicGain.gain.value = 1.2;
-    sfxGain.gain.value = 1;
-    masterGain.gain.value = 1;
+
+    loadVolumeSettings();
+
+    musicGain.gain.value = 1.2 * musicVolume;
+    sfxGain.gain.value = 1.0 * sfxVolume;
+    masterGain.gain.value = audioEnabled ? masterVolume : 0;
+
     connectNodeChain(musicGain, masterGain, audioCtx.destination);
     connectNodeChain(sfxGain, masterGain);
   }
@@ -44,15 +65,59 @@ const initAudio = () => {
 
 export const setAudioEnabled = (enabled) => {
   audioEnabled = Boolean(enabled);
-  ensureGraph();
   if (!audioCtx) return;
-  const target = audioEnabled ? 1 : 0;
+  const target = audioEnabled ? masterVolume : 0;
   masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.02);
   if (!audioEnabled) {
     stopArpeggiator();
   } else if (audioCtx.state === "suspended") {
     audioCtx.resume();
   }
+};
+
+export const setMasterVolume = (vol) => {
+  masterVolume = vol;
+  try {
+    localStorage.setItem("think-fast-blast-master-volume", String(vol));
+  } catch {
+    // Storage can be unavailable in private browsing or embedded contexts.
+  }
+  ensureGraph();
+  if (masterGain && audioCtx) {
+    const target = audioEnabled ? masterVolume : 0;
+    masterGain.gain.setTargetAtTime(target, audioCtx.currentTime, 0.02);
+  }
+};
+
+export const setMusicVolume = (vol) => {
+  musicVolume = vol;
+  try {
+    localStorage.setItem("think-fast-blast-music-volume", String(vol));
+  } catch {
+    // Storage can be unavailable in private browsing or embedded contexts.
+  }
+  ensureGraph();
+  if (musicGain && audioCtx) {
+    musicGain.gain.setTargetAtTime(1.2 * musicVolume, audioCtx.currentTime, 0.02);
+  }
+};
+
+export const setSFXVolume = (vol) => {
+  sfxVolume = vol;
+  try {
+    localStorage.setItem("think-fast-blast-sfx-volume", String(vol));
+  } catch {
+    // Storage can be unavailable in private browsing or embedded contexts.
+  }
+  ensureGraph();
+  if (sfxGain && audioCtx) {
+    sfxGain.gain.setTargetAtTime(1.0 * sfxVolume, audioCtx.currentTime, 0.02);
+  }
+};
+
+export const getVolumeSettings = () => {
+  loadVolumeSettings();
+  return { masterVolume, musicVolume, sfxVolume };
 };
 
 const playTone = ({
@@ -232,6 +297,7 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
 export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game") => {
   if (!audioEnabled) return;
   stopArpeggiator();
+  if (!audioCtx) return;
   initAudio();
   if (!audioCtx) return;
 
