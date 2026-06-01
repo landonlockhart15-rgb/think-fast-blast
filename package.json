@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "A responsive quiz-and-block-blasting browser game built with React and Vite.",
+  "license": "MIT",
   "type": "module",
   "homepage": "https://thinkfastblast.netlify.app",
   "repository": {
