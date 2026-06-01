@@ -687,6 +687,64 @@ function RunTelemetryPanel({ board, correctStreak, totalScore, misses, activePie
   );
 }
 
+function MenuLightfield() {
+  return (
+    <div className="menu-lightfield" aria-hidden="true">
+      <div className="menu-perspective-grid" />
+      <div className="menu-scanline" />
+      <div className="menu-light-sweep menu-light-sweep-a" />
+      <div className="menu-light-sweep menu-light-sweep-b" />
+    </div>
+  );
+}
+
+function MenuPreviewBoard() {
+  const previewCells = [
+    { x: 4, y: 1, color: "bg-purple-500" },
+    { x: 3, y: 2, color: "bg-purple-500" },
+    { x: 4, y: 2, color: "bg-purple-500" },
+    { x: 5, y: 2, color: "bg-purple-500" },
+    { x: 1, y: 10, color: "bg-cyan-500" },
+    { x: 2, y: 10, color: "bg-cyan-500" },
+    { x: 3, y: 10, color: "bg-cyan-500" },
+    { x: 4, y: 10, color: "bg-cyan-500" },
+    { x: 6, y: 12, color: "bg-green-500" },
+    { x: 7, y: 12, color: "bg-green-500" },
+    { x: 5, y: 13, color: "bg-green-500" },
+    { x: 6, y: 13, color: "bg-green-500" },
+    { x: 8, y: 14, color: "bg-red-500", emoji: "💣" },
+  ];
+
+  return (
+    <div className="menu-preview-board" aria-hidden="true">
+      <div className="menu-preview-grid">
+        {Array.from({ length: BOARD_WIDTH * BOARD_HEIGHT }, (_, index) => {
+          const x = index % BOARD_WIDTH;
+          const y = Math.floor(index / BOARD_WIDTH);
+          const cell = previewCells.find((item) => item.x === x && item.y === y);
+          return (
+            <div key={`${x}-${y}`} className={`menu-preview-cell ${cell ? cell.color : ""}`}>
+              {cell?.emoji || ""}
+            </div>
+          );
+        })}
+      </div>
+      <div className="menu-preview-burst menu-preview-burst-a" />
+      <div className="menu-preview-burst menu-preview-burst-b" />
+      <div className="menu-preview-label">LIVE RUN SIM</div>
+    </div>
+  );
+}
+
+function MenuStatPill({ label, value, accent = "text-cyan-300" }) {
+  return (
+    <div className="menu-stat-pill">
+      <span>{label}</span>
+      <strong className={accent}>{value}</strong>
+    </div>
+  );
+}
+
 // -------------------------------------------------------------------------
 // Main App Component
 // -------------------------------------------------------------------------
@@ -1967,7 +2025,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         </div>
       )}
 
-      <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-5xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
+      <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-7xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
         
         {/* Playable Game Grid View */}
         {!isMenu && gameState !== "intro" && (
@@ -2110,102 +2168,126 @@ Can you beat my score? Play ThinkFastBlast!`;
         {/* Home Screen and Dashboard */}
         {isMenu && (
           menuTab === "levels" ? (
-            <div className="menu-panel w-full max-w-5xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10 flex flex-col overflow-hidden">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4 text-left border-b border-slate-700/50 pb-4">
-                <div>
-                  <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-br from-cyan-300 via-blue-500 to-purple-600 drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]">
+            <div className="menu-panel menu-stage w-full max-w-7xl z-10 overflow-hidden">
+              <MenuLightfield />
+
+              <div className="menu-stage-content grid h-full min-h-0 grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-4 lg:gap-5">
+                <section className="menu-hero-panel">
+                  <div className="menu-kicker">Quiz Arcade // Block Blast</div>
+                  <h1 className="menu-title">
                     Think Fast Blast
                   </h1>
-                  <p className="text-sm md:text-base text-cyan-200 font-semibold mt-0.5">
-                    Speed Trivia & Block Blaster Puzzle
+                  <p className="menu-subtitle">
+                    Fast answers. Falling pieces. Chain reactions.
                   </p>
-                </div>
-                
-                {/* Stats Dashboard */}
-                <div className="flex flex-wrap gap-3 text-xs text-slate-300 bg-slate-950/50 px-4 py-2.5 rounded-xl border border-slate-700/40 shadow-inner">
-                  <div>Games: <strong className="text-white">{stats.totalGames}</strong></div>
-                  <div>Accuracy: <strong className="text-green-400">{stats.totalQuestions > 0 ? `${Math.round((stats.totalCorrect / stats.totalQuestions) * 100)}%` : "0%"}</strong></div>
-                  <div>Correct: <strong className="text-cyan-400">{stats.totalCorrect}</strong></div>
-                  <div>Glitches: <strong className="text-purple-400">{stats.glitches} 👾</strong></div>
-                </div>
-              </div>
 
-              {/* Toolbar Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Navigation:</span>
-                  <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-small-button bg-purple-600 hover:bg-purple-500 border-purple-400 shadow-md">
-                    🔮 The Glitch Codex Shop
-                  </button>
-                  <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-small-button">
-                    📋 How to Play
-                  </button>
-                </div>
-                
-                <div className="flex items-center gap-2 text-xs">
-                  <button type="button" onClick={() => { playSFX("button"); setMaxUnlockedLevel(FINAL_LEVEL_ID); }} className="menu-small-button bg-cyan-500 text-slate-950 border-cyan-300">Unlock All</button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if(confirm("Reset all statistics and game progress?")) {
-                        playSFX("button");
-                        setMaxUnlockedLevel(1);
-                        const reset = { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
-                        setStats(reset);
-                        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(reset));
-                      }
-                    }}
-                    className="menu-small-button text-red-400 border-red-500/30 hover:bg-red-500/10"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
+                  <div className="menu-hero-actions">
+                    <button
+                      type="button"
+                      onClick={() => startLevel(maxUnlockedLevel)}
+                      className="menu-primary-button"
+                    >
+                      Start Level {maxUnlockedLevel}
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-ghost-button">
+                      Glitch Codex
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-ghost-button">
+                      How To Play
+                    </button>
+                  </div>
 
-              {/* Levels Selection Grid */}
-              <div className="max-h-[50vh] overflow-y-auto pr-1">
-                <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-2 text-left">
-                  Select A Challenge Level
-                </h2>
-                <div className="level-grid">
-                  {LEVELS.map((item) => {
-                    const isUnlocked = item.id <= maxUnlockedLevel;
-                    const bestScore = stats.highScores[item.id] || 0;
-                    return (
+                  <div className="menu-stats-row">
+                    <MenuStatPill label="Games" value={stats.totalGames} accent="text-white" />
+                    <MenuStatPill label="Accuracy" value={stats.totalQuestions > 0 ? `${Math.round((stats.totalCorrect / stats.totalQuestions) * 100)}%` : "0%"} accent="text-emerald-300" />
+                    <MenuStatPill label="Correct" value={stats.totalCorrect} accent="text-cyan-300" />
+                    <MenuStatPill label="Glitches" value={`${stats.glitches} 👾`} accent="text-fuchsia-300" />
+                  </div>
+
+                  <div className="menu-preview-wrap">
+                    <MenuPreviewBoard />
+                    <div className="menu-preview-copy">
+                      <div className="menu-kicker">Current Run Pulse</div>
+                      <div className="menu-preview-score">25 / 500</div>
+                      <div className="menu-preview-meter">
+                        <span style={{ width: "22%" }} />
+                      </div>
+                      <div className="menu-preview-chips">
+                        <span>Perfect</span>
+                        <span>Combo Charge</span>
+                        <span>Blast Ready</span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="menu-level-panel">
+                  <div className="menu-level-header">
+                    <div>
+                      <div className="menu-kicker">Challenge Map</div>
+                      <h2>Select Your Level</h2>
+                    </div>
+                    <div className="menu-admin-actions">
+                      <button type="button" onClick={() => { playSFX("button"); setMaxUnlockedLevel(FINAL_LEVEL_ID); }} className="menu-mini-button">Unlock All</button>
                       <button
-                        key={item.id}
                         type="button"
-                        disabled={!isUnlocked}
-                        onClick={() => startLevel(item.id)}
-                        className={`level-card flex flex-col justify-between ${
-                          isUnlocked
-                            ? "bg-gradient-to-br from-slate-800 to-slate-900 hover:from-slate-700 hover:to-slate-800 hover:border-cyan-400/50 hover:shadow-[0_0_12px_rgba(34,211,238,0.15)] text-white border-slate-700"
-                            : "bg-slate-900/60 text-slate-500 cursor-not-allowed border-slate-800/80"
-                        }`}
+                        onClick={() => {
+                          if(confirm("Reset all statistics and game progress?")) {
+                            playSFX("button");
+                            setMaxUnlockedLevel(1);
+                            const reset = { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
+                            setStats(reset);
+                            localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(reset));
+                          }
+                        }}
+                        className="menu-mini-button menu-mini-danger"
                       >
-                        <div>
-                          <span className="block text-[10px] md:text-xs uppercase tracking-widest opacity-80 font-bold">
-                            {isUnlocked ? `Level ${item.id} · ${item.ageHint}` : `Level ${item.id} · Locked`}
-                          </span>
-                          <span className={`block text-sm md:text-base mt-0.5 font-black ${isUnlocked ? "text-cyan-300" : "text-slate-600"}`}>
-                            {item.name}
-                          </span>
-                          <span className="block text-xs mt-0.5 font-semibold opacity-70">
-                            {item.theme}
-                          </span>
-                        </div>
-                        {isUnlocked && bestScore > 0 && (
-                          <div className="mt-1.5 text-[9px] font-black text-yellow-400 bg-slate-950/60 px-2 py-0.5 rounded border border-yellow-500/20 self-start flex items-center gap-1 shadow-inner">
-                            🏆 Best: {bestScore}
-                          </div>
-                        )}
-                        {!isUnlocked && (
-                          <span className="mt-1.5 text-xs">🔒 Locked</span>
-                        )}
+                        Reset
                       </button>
-                    );
-                  })}
-                </div>
+                    </div>
+                  </div>
+
+                  <div className="menu-level-scroll">
+                    <div className="level-grid level-grid-showcase">
+                      {LEVELS.map((item) => {
+                        const isUnlocked = item.id <= maxUnlockedLevel;
+                        const bestScore = stats.highScores[item.id] || 0;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            disabled={!isUnlocked}
+                            onClick={() => startLevel(item.id)}
+                            className={`level-card level-card-showcase ${
+                              isUnlocked ? "level-card-unlocked" : "level-card-locked"
+                            }`}
+                          >
+                            <span className="level-card-number">
+                              {String(item.id).padStart(2, "0")}
+                            </span>
+                            <span className="level-card-meta">
+                              {isUnlocked ? item.ageHint : "Locked"}
+                            </span>
+                            <span className="level-card-title">
+                              {item.name}
+                            </span>
+                            <span className="level-card-theme">
+                              {item.theme}
+                            </span>
+                            {isUnlocked && bestScore > 0 && (
+                              <span className="level-card-best">
+                                Best {bestScore}
+                              </span>
+                            )}
+                            {!isUnlocked && (
+                              <span className="level-card-lock">Locked</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
           ) : menuTab === "shop" ? (
