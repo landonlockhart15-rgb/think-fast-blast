@@ -2608,7 +2608,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   
   const panelClass = isMenu
     ? "w-full max-w-5xl h-full flex flex-col items-center justify-center text-center z-10"
-    : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-center text-center md:text-left relative overflow-hidden z-10";
+    : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-start md:justify-center text-center md:text-left relative overflow-y-auto md:overflow-hidden z-10";
 
   return (
     <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
@@ -3725,7 +3725,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
                   {currentQuestion.q}
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
+                <div className="grid grid-cols-2 gap-2 md:gap-4 w-full">
                   {currentQuestion.options.map((option, index) => (
                     <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button group flex items-center gap-2.5 bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] active:scale-95 transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
                       <span className="answer-badge">{String.fromCharCode(65 + index)}</span>
@@ -3750,7 +3750,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <h3 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 text-white leading-tight drop-shadow-md">
                   {currentQuestion.q}
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:gap-4 w-full">
+                <div className="grid grid-cols-2 gap-2 md:gap-4 w-full">
                   {currentQuestion.options.map((option, index) => (
                     <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button group flex items-center gap-2.5 bg-slate-700/80 hover:bg-gradient-to-r hover:from-red-600 hover:to-orange-500 hover:scale-[1.02] active:scale-95 transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-red-500/50">
                       <span className="answer-badge answer-badge-danger">{String.fromCharCode(65 + index)}</span>

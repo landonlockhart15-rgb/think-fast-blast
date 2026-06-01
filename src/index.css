@@ -599,7 +599,17 @@ button {
   }
 
   .menu-preview-wrap {
-    display: none;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 0.7rem;
+    padding: 0.7rem;
+  }
+
+  .menu-preview-board {
+    width: 100px;
+  }
+
+  .menu-preview-score {
+    font-size: 1.7rem;
   }
 
   .menu-level-header {
