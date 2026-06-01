@@ -1,8 +1,17 @@
 {
   "name": "think-fast-blast",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "A responsive quiz-and-block-blasting browser game built with React and Vite.",
   "type": "module",
+  "homepage": "https://thinkfastblast.netlify.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/landonlockhart15-rgb/think-fast-blast.git"
+  },
+  "bugs": {
+    "url": "https://github.com/landonlockhart15-rgb/think-fast-blast/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -1,8 +1,42 @@
 # Think Fast Blast
 
-Think Fast Blast is a local React/Vite game that mixes quiz questions with falling
-block gameplay. Correct answers give controllable blocks. Wrong answers drop
-stone blocks. Fruit bombs, color matches, and line clears add points.
+Think Fast Blast is a responsive browser game that blends fast trivia with
+falling-block puzzle pressure. It started as a way to make practice questions
+more engaging for a kid who needed help building school confidence, then grew
+into a colorful arcade quiz game built for quick rounds, streaks, and replayable
+challenge.
+
+Play it here: https://thinkfastblast.netlify.app
+
+## Gameplay
+
+Answer trivia to earn control of falling pieces. Correct answers let you place
+blocks strategically, build streaks, and unlock special pieces. Wrong answers
+drop heavy stone blocks and push the board closer to disaster.
+
+- Clear a level by reaching 500 points.
+- Survive with fewer than three strikes.
+- Build streaks to trigger TNT, drill, and lightning power pieces.
+- Score through quick answers, color matches, line clears, and special blasts.
+- Play with keyboard controls on desktop or touch controls on phones and tablets.
+
+## Features
+
+- 20 trivia levels with escalating themes and difficulty
+- Mobile, tablet, and desktop layouts
+- Touch, swipe, and keyboard controls
+- Combo streaks, special blocks, board hazards, and recovery moments
+- Web Audio music and sound effects with persistent volume controls
+- Local progress, unlocks, high scores, and run stats
+- Netlify-ready Vite production build
+
+## Tech Stack
+
+- React
+- Vite
+- Tailwind CSS
+- Web Audio API
+- Node test runner
 
 ## Run Locally
 
@@ -13,37 +47,34 @@ npm run dev
 
 Then open the local URL Vite prints, usually `http://localhost:5173`.
 
-## Build
+## Quality Checks
 
 ```powershell
+npm run lint
+npm test
 npm run build
+npm audit
 ```
 
-The production site is generated in `dist/`.
+## Deploy
 
-## Deploy To Netlify
-
-Use these settings:
+The project is configured for Netlify:
 
 - Build command: `npm run build`
 - Publish directory: `dist`
 
-You can deploy by dragging the `dist` folder into Netlify, or by connecting a
-GitHub repo and using the settings above.
+Production deploys live at:
+
+https://thinkfastblast.netlify.app
 
 ## Project Structure
 
 ```text
-src/App.jsx             Main game component and UI
-src/data/constants.js   Board size, scoring, speed, block definitions
+src/App.jsx             Main game component, state, and UI
+src/data/constants.js   Board size, scoring, levels, speed, block definitions
 src/data/questions.js   Level question banks
+src/game/audio.js       Web Audio music and sound effects
 src/game/board.js       Board creation, collision, shuffle, rotation helpers
-src/index.css           Tailwind entry plus background animations
+src/game/board.test.js  Core board mechanics tests
+src/index.css           Tailwind entry, animations, and responsive game styles
 ```
-
-## Gameplay Notes
-
-- Reach 500 points to clear a level.
-- Three wrong answers ends the run.
-- After several correct answers, a turn can drop two blocks.
-- Stone blocks do not color-match; clear them with full lines or fruit blasts.
