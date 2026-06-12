@@ -79,9 +79,30 @@ export const TETROMINOES = [
 
 // Special 1x1 fruit blocks detonate after landing.
 export const FRUITS = [
-  { shape: [[1]], color: "bg-red-500", isFruit: true, emoji: "🍎" },
-  { shape: [[1]], color: "bg-orange-500", isFruit: true, emoji: "🍊" },
-  { shape: [[1]], color: "bg-yellow-400", isFruit: true, emoji: "🍌" },
+  {
+    shape: [[1]],
+    color: "bg-red-500",
+    isFruit: true,
+    fruitType: "apple",
+    emoji: "🍎",
+    powerLabel: "Color Core",
+  },
+  {
+    shape: [[1]],
+    color: "bg-orange-500",
+    isFruit: true,
+    fruitType: "orange",
+    emoji: "🍊",
+    powerLabel: "Citrus Cross",
+  },
+  {
+    shape: [[1]],
+    color: "bg-yellow-400",
+    isFruit: true,
+    fruitType: "banana",
+    emoji: "🍌",
+    powerLabel: "Ricochet Peel",
+  },
 ];
 
 export const TRIVIA_FACTS = [

@@ -5,6 +5,7 @@ let audioCtx = null;
 let masterGain = null;
 let musicGain = null;
 let sfxGain = null;
+let limiter = null;
 let arpeggiatorInterval = null;
 let currentArpNote = 0;
 let audioEnabled = true;
@@ -41,14 +42,20 @@ const ensureGraph = () => {
     masterGain = audioCtx.createGain();
     musicGain = audioCtx.createGain();
     sfxGain = audioCtx.createGain();
+    limiter = audioCtx.createDynamicsCompressor();
 
     loadVolumeSettings();
 
-    musicGain.gain.value = 1.2 * musicVolume;
-    sfxGain.gain.value = 1.0 * sfxVolume;
+    musicGain.gain.value = 1.35 * musicVolume;
+    sfxGain.gain.value = 1.3 * sfxVolume;
     masterGain.gain.value = audioEnabled ? masterVolume : 0;
+    limiter.threshold.value = -10;
+    limiter.knee.value = 18;
+    limiter.ratio.value = 8;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.18;
 
-    connectNodeChain(musicGain, masterGain, audioCtx.destination);
+    connectNodeChain(musicGain, masterGain, limiter, audioCtx.destination);
     connectNodeChain(sfxGain, masterGain);
   }
   return audioCtx;
@@ -98,7 +105,7 @@ export const setMusicVolume = (vol) => {
   }
   ensureGraph();
   if (musicGain && audioCtx) {
-    musicGain.gain.setTargetAtTime(1.2 * musicVolume, audioCtx.currentTime, 0.02);
+    musicGain.gain.setTargetAtTime(1.35 * musicVolume, audioCtx.currentTime, 0.02);
   }
 };
 
@@ -111,7 +118,7 @@ export const setSFXVolume = (vol) => {
   }
   ensureGraph();
   if (sfxGain && audioCtx) {
-    sfxGain.gain.setTargetAtTime(1.0 * sfxVolume, audioCtx.currentTime, 0.02);
+    sfxGain.gain.setTargetAtTime(1.3 * sfxVolume, audioCtx.currentTime, 0.02);
   }
 };
 
@@ -277,6 +284,46 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
       filterFrequency: 4200,
       filterDecay: 1800,
       startTime: now,
+    });
+  }
+
+  if (scene !== "menu" && intensity > 0.38 && beat % 2 === 0) {
+    playTone({
+      destination: musicGain,
+      type: "sine",
+      frequency: beat === 0 || beat === 4 ? 72 : 92,
+      startTime: now,
+      duration: 0.11,
+      gain: 0.045 + intensity * 0.025,
+      endFrequency: 42,
+      filterType: "lowpass",
+      filterFrequency: 180,
+    });
+  }
+
+  if (scene !== "menu" && intensity > 0.62 && (beat === 1 || beat === 3 || beat === 5 || beat === 7)) {
+    playNoiseBurst({
+      destination: musicGain,
+      duration: 0.045,
+      gain: 0.02 + intensity * 0.012,
+      filterFrequency: 7200,
+      filterDecay: 3800,
+      startTime: now,
+    });
+  }
+
+  if (scene !== "menu" && intensity > 0.78 && beat === 7) {
+    [880, 1174.66, 1567.98].forEach((frequency, index) => {
+      playTone({
+        destination: musicGain,
+        type: "square",
+        frequency,
+        startTime: now + index * 0.035,
+        duration: 0.055,
+        gain: 0.022,
+        filterType: "highpass",
+        filterFrequency: 700,
+      });
     });
   }
 
@@ -543,6 +590,69 @@ export const playSFX = (type, comboCount = 0) => {
       case "streak": {
         playTone({ frequency: 659.25, startTime: now, duration: 0.1, gain: 0.055, type: "triangle", endFrequency: 880.0, destination: sfxGain });
         playTone({ frequency: 880.0, startTime: now + 0.06, duration: 0.11, gain: 0.05, type: "sine", endFrequency: 1174.66, destination: sfxGain });
+        break;
+      }
+
+      case "drill": {
+        playTone({ frequency: 210, startTime: now, duration: 0.34, gain: 0.11, type: "sawtooth", endFrequency: 70, filterType: "lowpass", filterFrequency: 900, destination: sfxGain });
+        [0, 0.07, 0.14, 0.21].forEach((offset, index) => {
+          playNoiseBurst({
+            duration: 0.065,
+            gain: 0.075 - index * 0.008,
+            filterFrequency: 2600 - index * 350,
+            filterDecay: 700,
+            startTime: now + offset,
+            destination: sfxGain,
+          });
+        });
+        break;
+      }
+
+      case "fruit_apple": {
+        [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
+          playTone({
+            frequency,
+            startTime: now + index * 0.045,
+            duration: 0.14,
+            gain: 0.075,
+            type: "sine",
+            endFrequency: frequency * 1.18,
+            destination: sfxGain,
+          });
+        });
+        break;
+      }
+
+      case "fruit_orange": {
+        playNoiseBurst({ duration: 0.24, gain: 0.15, filterFrequency: 3200, filterDecay: 480, destination: sfxGain });
+        [220, 330, 440].forEach((frequency, index) => {
+          playTone({
+            frequency,
+            startTime: now + index * 0.035,
+            duration: 0.2,
+            gain: 0.08,
+            type: "triangle",
+            endFrequency: frequency * 0.62,
+            destination: sfxGain,
+          });
+        });
+        break;
+      }
+
+      case "fruit_banana": {
+        [880, 659.25, 987.77, 739.99, 1174.66].forEach((frequency, index) => {
+          playTone({
+            frequency,
+            startTime: now + index * 0.055,
+            duration: 0.09,
+            gain: 0.065,
+            type: "square",
+            endFrequency: frequency * 1.28,
+            filterType: "highpass",
+            filterFrequency: 500,
+            destination: sfxGain,
+          });
+        });
         break;
       }
 

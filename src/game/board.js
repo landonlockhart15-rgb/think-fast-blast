@@ -110,3 +110,77 @@ export const findBlastCells = (currentBoard, centerY, centerX, radius = 1) => {
   }
   return cells;
 };
+
+export const findFruitEffectCells = (currentBoard, centerY, centerX, fruitType, color) => {
+  const cells = [];
+  const seen = new Set();
+  const add = (y, x) => {
+    const insideBoard = y >= 0 && y < BOARD_HEIGHT && x >= 0 && x < BOARD_WIDTH;
+    const key = `${y}:${x}`;
+    if (
+      insideBoard &&
+      !seen.has(key) &&
+      currentBoard[y][x] !== null &&
+      !currentBoard[y][x].isGhost
+    ) {
+      seen.add(key);
+      cells.push({ y, x });
+    }
+  };
+
+  add(centerY, centerX);
+
+  if (fruitType === "orange") {
+    for (let distance = 1; distance <= 2; distance += 1) {
+      add(centerY - distance, centerX);
+      add(centerY + distance, centerX);
+      add(centerY, centerX - distance);
+      add(centerY, centerX + distance);
+    }
+    return cells;
+  }
+
+  if (fruitType === "banana") {
+    for (let distance = 1; distance <= 3; distance += 1) {
+      add(centerY - distance, centerX - distance);
+      add(centerY - distance, centerX + distance);
+      add(centerY + distance, centerX - distance);
+      add(centerY + distance, centerX + distance);
+    }
+    return cells;
+  }
+
+  const queue = [
+    [centerY - 1, centerX],
+    [centerY + 1, centerX],
+    [centerY, centerX - 1],
+    [centerY, centerX + 1],
+  ];
+  const visited = new Set();
+
+  while (queue.length > 0) {
+    const [y, x] = queue.shift();
+    const key = `${y}:${x}`;
+    if (visited.has(key)) continue;
+    visited.add(key);
+    if (y < 0 || y >= BOARD_HEIGHT || x < 0 || x >= BOARD_WIDTH) continue;
+    const cell = currentBoard[y][x];
+    if (!cell || cell.isGhost || cell.isStone || cell.color !== color) continue;
+    add(y, x);
+    queue.push(
+      [y - 1, x],
+      [y + 1, x],
+      [y, x - 1],
+      [y, x + 1]
+    );
+  }
+
+  if (cells.length === 1) {
+    add(centerY - 1, centerX);
+    add(centerY + 1, centerX);
+    add(centerY, centerX - 1);
+    add(centerY, centerX + 1);
+  }
+
+  return cells;
+};

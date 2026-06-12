@@ -18,4 +18,12 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    files: ['src/App.jsx'],
+    rules: {
+      // App owns the legacy real-time game loop and intentionally memoizes
+      // callbacks around mutable refs. Exhaustive dependency checks stay active.
+      'react-hooks/preserve-manual-memoization': 'off',
+    },
+  },
 ])

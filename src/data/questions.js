@@ -1,6 +1,8 @@
 // Question banks are intentionally data-only. The game engine imports these
 // arrays by level, which keeps App.jsx focused on gameplay and rendering.
 
+import { ADVANCED_QUESTION_EXTRAS } from "./advancedQuestions.js";
+
 export const LEVEL_1_QUESTIONS = [
   { q: "What is the capital of France?", options: ["London", "Berlin", "Paris", "Madrid"], answer: 2 },
   { q: "What is 8 x 7?", options: ["54", "56", "64", "48"], answer: 1 },
@@ -392,7 +394,7 @@ export const LEVEL_9_QUESTIONS = [
   { q: "Which word means 'not fair'?", options: ["Unfair", "Refair", "Fairly", "Fairness"], answer: 0 },
   { q: "What is the main idea of a paragraph?", options: ["The biggest letter", "The central point", "The last comma", "The longest word"], answer: 1 },
   { q: "Which word is an adjective?", options: ["Sparkly", "Run", "Under", "Yesterday"], answer: 0 },
-  { q: "Which word is spelled correctly?", options: ["Necessary", "Necesary", "Neccessary", "Nesessary"], answer: 0 },
+  { q: "How is the word meaning 'required' spelled?", options: ["Necessary", "Necesary", "Neccessary", "Nesessary"], answer: 0 },
   { q: "What does 'biography' mean?", options: ["A life story", "A weather report", "A recipe", "A map"], answer: 0 },
   { q: "Which word has a silent letter?", options: ["Knight", "River", "Happy", "Music"], answer: 0 },
   { q: "Which sentence is a command?", options: ["Please close the door.", "The door is blue.", "Where is the door?", "Wow, a door!"], answer: 0 },
@@ -596,14 +598,14 @@ export const QUESTION_BANKS = {
   8: [...LEVEL_8_QUESTIONS, ...LEVEL_8_EXTRA],
   9: LEVEL_9_QUESTIONS,
   10: LEVEL_10_QUESTIONS,
-  11: LEVEL_11_QUESTIONS,
-  12: LEVEL_12_QUESTIONS,
-  13: LEVEL_13_QUESTIONS,
-  14: LEVEL_14_QUESTIONS,
-  15: LEVEL_15_QUESTIONS,
-  16: LEVEL_16_QUESTIONS,
-  17: LEVEL_17_QUESTIONS,
-  18: LEVEL_18_QUESTIONS,
-  19: LEVEL_19_QUESTIONS,
-  20: LEVEL_20_QUESTIONS,
+  11: [...LEVEL_11_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[11]],
+  12: [...LEVEL_12_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[12]],
+  13: [...LEVEL_13_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[13]],
+  14: [...LEVEL_14_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[14]],
+  15: [...LEVEL_15_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[15]],
+  16: [...LEVEL_16_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[16]],
+  17: [...LEVEL_17_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[17]],
+  18: [...LEVEL_18_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[18]],
+  19: [...LEVEL_19_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[19]],
+  20: [...LEVEL_20_QUESTIONS, ...ADVANCED_QUESTION_EXTRAS[20]],
 };

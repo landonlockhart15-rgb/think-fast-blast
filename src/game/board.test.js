@@ -7,6 +7,7 @@ import {
   createEmptyBoard,
   findBlastCells,
   findConnectedColorMatches,
+  findFruitEffectCells,
   findFullRows,
 } from "./board.js";
 
@@ -70,5 +71,34 @@ test("findBlastCells returns occupied non-ghost cells in a bounded 3x3 area", ()
     { y: 0, x: 0 },
     { y: 0, x: 1 },
     { y: 1, x: 0 },
+  ]);
+});
+
+test("fruit effects create distinct color, cross, and diagonal clear patterns", () => {
+  const board = createEmptyBoard();
+  board[10][4] = { color: "bg-red-500", isFruit: true, fruitType: "apple" };
+  board[10][3] = { color: "bg-red-500" };
+  board[10][2] = { color: "bg-red-500" };
+  board[9][4] = { color: "bg-orange-500" };
+  board[8][4] = { color: "bg-blue-500" };
+  board[9][3] = { color: "bg-yellow-400" };
+  board[8][2] = { color: "bg-green-500" };
+
+  assert.deepEqual(findFruitEffectCells(board, 10, 4, "apple", "bg-red-500"), [
+    { y: 10, x: 4 },
+    { y: 10, x: 3 },
+    { y: 10, x: 2 },
+  ]);
+  assert.deepEqual(findFruitEffectCells(board, 10, 4, "orange", "bg-red-500"), [
+    { y: 10, x: 4 },
+    { y: 9, x: 4 },
+    { y: 10, x: 3 },
+    { y: 8, x: 4 },
+    { y: 10, x: 2 },
+  ]);
+  assert.deepEqual(findFruitEffectCells(board, 10, 4, "banana", "bg-red-500"), [
+    { y: 10, x: 4 },
+    { y: 9, x: 3 },
+    { y: 8, x: 2 },
   ]);
 });

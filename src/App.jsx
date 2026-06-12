@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   BOARD_HEIGHT,
@@ -17,6 +17,7 @@ import { QUESTION_BANKS } from "./data/questions";
 import {
   checkCollision,
   createEmptyBoard,
+  findFruitEffectCells,
   rotateShapeClockwise,
   shuffleArray,
 } from "./game/board";
@@ -30,10 +31,32 @@ import {
   setSFXVolume,
   getVolumeSettings,
 } from "./game/audio";
+import {
+  DIFFICULTY_PRESETS,
+  getObjectiveStatus,
+  getRunConfig,
+  isRunComplete,
+} from "./game/difficulty";
+import {
+  buildDailyQuestionDeck,
+  buildQuestionDeck,
+  getDailyChallengeKey,
+} from "./game/questionDeck";
+import {
+  createProfile,
+  deleteProfile,
+  getActiveProfileId,
+  readProfiles,
+  readScopedValue,
+  setActiveProfileId as persistActiveProfileId,
+  updateProfile,
+  writeScopedValue,
+} from "./game/profileStore";
 import Confetti from "./game/Confetti";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
-const PLAYABLE_STATES = new Set(["quiz", "dropping", "transition", "resolving", "strike_recovery"]);
+const RECENT_QUESTIONS_STORAGE_KEY = "think-fast-blast-recent-questions";
+const PLAYABLE_STATES = new Set(["quiz", "dropping", "transition", "resolving", "strike_recovery", "arena_quiz", "arena_dropping", "arena_resolving"]);
 const FLASH_DURATION_MS = 260;
 
 const SHOP_ITEMS = [
@@ -64,7 +87,7 @@ const getThemeCellColor = (baseColor, themeName) => {
 
 const readSavedStats = () => {
   try {
-    const saved = localStorage.getItem(STATS_STORAGE_KEY);
+    const saved = readScopedValue(STATS_STORAGE_KEY);
     const parsed = saved ? JSON.parse(saved) : {};
     return {
       highScores: parsed.highScores || {},
@@ -75,10 +98,52 @@ const readSavedStats = () => {
       unlockedItems: parsed.unlockedItems || [],
       activeTheme: parsed.activeTheme || "default",
       unlockedAchievements: parsed.unlockedAchievements || [],
-      bestStreak: parsed.bestStreak || 0
+      bestStreak: parsed.bestStreak || 0,
+      dailyStreak: parsed.dailyStreak || 0,
+      lastDailyWin: parsed.lastDailyWin || "",
+      dailyBest: parsed.dailyBest || 0,
+      levelsWon: parsed.levelsWon || 0,
+      arenaWins: parsed.arenaWins || 0,
+      totalLines: parsed.totalLines || 0,
+      totalMatches: parsed.totalMatches || 0,
+      totalFruits: parsed.totalFruits || 0,
+      totalSpecials: parsed.totalSpecials || 0,
     };
   } catch {
-    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default", unlockedAchievements: [], bestStreak: 0 };
+    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default", unlockedAchievements: [], bestStreak: 0, dailyStreak: 0, lastDailyWin: "", dailyBest: 0, levelsWon: 0, arenaWins: 0, totalLines: 0, totalMatches: 0, totalFruits: 0, totalSpecials: 0 };
+  }
+};
+
+const saveStats = (stats) => {
+  try {
+    writeScopedValue(STATS_STORAGE_KEY, JSON.stringify(stats));
+  } catch {
+    // Storage can be unavailable in private browsing or embedded contexts.
+  }
+};
+
+const readRecentQuestionIds = () => {
+  try {
+    const parsed = JSON.parse(readScopedValue(RECENT_QUESTIONS_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const rememberQuestionId = (questionId) => {
+  if (!questionId) return;
+  const recent = readRecentQuestionIds().filter((id) => id !== questionId);
+  recent.push(questionId);
+  writeScopedValue(RECENT_QUESTIONS_STORAGE_KEY, JSON.stringify(recent.slice(-120)));
+};
+
+const readBooleanPreference = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved === null ? fallback : saved === "true";
+  } catch {
+    return fallback;
   }
 };
 
@@ -87,10 +152,18 @@ const FINAL_LEVEL_ID = LEVELS.at(-1).id;
 
 const readSavedProgress = () => {
   try {
-    const saved = Number.parseInt(localStorage.getItem(PROGRESS_STORAGE_KEY), 10);
+    const saved = Number.parseInt(readScopedValue(PROGRESS_STORAGE_KEY), 10);
     return Number.isFinite(saved) ? Math.min(Math.max(saved, 1), FINAL_LEVEL_ID) : 1;
   } catch {
     return 1;
+  }
+};
+
+const saveProgress = (level) => {
+  try {
+    writeScopedValue(PROGRESS_STORAGE_KEY, String(level));
+  } catch {
+    // Storage can be unavailable in private browsing or embedded contexts.
   }
 };
 
@@ -106,7 +179,43 @@ const ACHIEVEMENTS = {
   streak10: { label: "Untouchable", emoji: "🔥", desc: "Reached a x10 answer streak" },
   line: { label: "Line Cook", emoji: "🧱", desc: "Cleared a full line" },
   bigmatch: { label: "Color Theory", emoji: "🌈", desc: "Cleared a 5+ color match" },
+  first_win: { label: "Blast Off", emoji: "🚀", desc: "Won your first level" },
+  flawless: { label: "Flawless Focus", emoji: "🌟", desc: "Won a level without taking a strike" },
+  board_buster: { label: "Board Buster", emoji: "💥", desc: "Triggered four clears in one run" },
+  fruit_salad: { label: "Fruit Salad", emoji: "🍎", desc: "Detonated three fruit blocks in one run" },
+  power_trip: { label: "Power Trip", emoji: "🔋", desc: "Triggered three special blocks in one run" },
+  level5: { label: "Getting Serious", emoji: "🎯", desc: "Cleared campaign level 5" },
+  level10: { label: "Halfway Hero", emoji: "🏅", desc: "Cleared campaign level 10" },
+  champion: { label: "Think Fast Champion", emoji: "🏆", desc: "Cleared campaign level 20" },
+  daily: { label: "Daily Spark", emoji: "☀", desc: "Won a Daily Blast" },
+  scholar: { label: "Century Mind", emoji: "🧠", desc: "Answered 100 questions correctly" },
+  veteran: { label: "Arcade Regular", emoji: "🎮", desc: "Completed 10 game runs" },
+  arena: { label: "Arena Victor", emoji: "🔮", desc: "Won a Blast Arena duel" },
+  glitch_hoard: { label: "Glitch Hoard", emoji: "👾", desc: "Collected 1,000 Glitches" },
 };
+
+const PROFILE_AVATARS = ["⚡", "🚀", "🧠", "🎮", "🌈", "🔥", "👾", "⭐"];
+
+const ONBOARDING_STEPS = [
+  {
+    eyebrow: "Think Fast",
+    title: "Answer before the block lands",
+    body: "Correct answers give you control. Fast answers build score, streak energy, and stronger special blocks.",
+    icon: "🧠",
+  },
+  {
+    eyebrow: "Place Smart",
+    title: "Build lines and color groups",
+    body: "Move, rotate, and drop pieces. Full rows and groups of five matching colors trigger chain reactions.",
+    icon: "🧱",
+  },
+  {
+    eyebrow: "Blast Big",
+    title: "Streaks forge powerful pieces",
+    body: "TNT arrives at x3, the Drill at x5, and Lightning at x7. Every level also has its own mission.",
+    icon: "⚡",
+  },
+];
 
 // Escalating praise that scales with the current streak — variable verbal reward.
 const praiseForStreak = (streak) => {
@@ -161,7 +270,7 @@ function useAnimatedNumber(target, durationMs = 550) {
 }
 
 // Live countdown of the ≤2.2s "PERFECT" quick-answer bonus window. Pure visual.
-function QuickAnswerTimer({ startTime, active }) {
+function QuickAnswerTimer({ startTime, active, windowSeconds = 2.2 }) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -175,7 +284,7 @@ function QuickAnswerTimer({ startTime, active }) {
     return () => cancelAnimationFrame(raf);
   }, [active, startTime]);
 
-  const WINDOW = 2.2;
+  const WINDOW = windowSeconds;
   const inBonus = elapsed <= WINDOW;
   const pct = Math.max(0, Math.min(1, 1 - elapsed / WINDOW)) * 100;
 
@@ -303,7 +412,7 @@ function StoreItemPreview({ itemId }) {
             }
           });
         });
-      } 
+      }
       else if (itemId === "theme_retro") {
         themeBlocks.forEach((b) => {
           const bx = startX + b.x * cellSize + 1.5;
@@ -326,10 +435,10 @@ function StoreItemPreview({ itemId }) {
           const charY = ((time * 1.5 + i * 20) % (gridRows * cellSize)) + startY;
           ctx.fillText(Math.random() < 0.5 ? "0" : "1", startX + i * cellSize + 8, charY);
         }
-      } 
+      }
       else if (itemId === "catalyst_bomb") {
         bombTimer += 1;
-        
+
         const targetBlocks = [
           { x: 1, y: 3 }, { x: 2, y: 3 }, { x: 3, y: 3 },
           { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }
@@ -358,10 +467,10 @@ function StoreItemPreview({ itemId }) {
           ctx.fillStyle = "#fff";
           ctx.font = "12px sans-serif";
           ctx.fillText("💣", bbx + 3, bombY + 15);
-        } 
+        }
         else if (bombTimer >= 80 && bombTimer < 110) {
           explosionRadius += 2.2;
-          
+
           ctx.beginPath();
           ctx.arc(startX + 2.5 * cellSize, startY + 3.5 * cellSize, explosionRadius, 0, Math.PI * 2);
           const grad = ctx.createRadialGradient(
@@ -398,14 +507,14 @@ function StoreItemPreview({ itemId }) {
             ctx.fill();
             ctx.globalAlpha = 1.0;
           });
-        } 
+        }
         else {
           bombTimer = 0;
           bombY = startY - cellSize;
           explosionRadius = 0;
           particles = [];
         }
-      } 
+      }
       else if (itemId === "catalyst_wildcard") {
         wildcardTimer += 1;
 
@@ -441,10 +550,10 @@ function StoreItemPreview({ itemId }) {
           ctx.fillStyle = "#fff";
           ctx.font = "12px sans-serif";
           ctx.fillText("✨", wX + 3, wildcardY + 15);
-        } 
+        }
         else if (wildcardTimer >= 75 && wildcardTimer < 115) {
           const matchColor = wildcardTimer % 15 < 7 ? "#fef08a" : "#fbbf24";
-          
+
           wildblocks.forEach((b) => {
             const bx = startX + b.x * cellSize + 1.5;
             const by = startY + b.y * cellSize + 1.5;
@@ -478,7 +587,7 @@ function StoreItemPreview({ itemId }) {
             ctx.fill();
             ctx.globalAlpha = 1.0;
           });
-        } 
+        }
         else {
           wildcardTimer = 0;
           wildcardY = startY - cellSize;
@@ -585,7 +694,7 @@ function BrainSparksCanvas() {
 }
 
 // A Canvas component for drawing block explosions and sparks
-function BoardParticlesCanvas({ explodingCells, correctStreak }) {
+function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "match" }) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
 
@@ -598,28 +707,42 @@ function BoardParticlesCanvas({ explodingCells, correctStreak }) {
     const height = canvas.height;
     const cellW = width / 10;
     const cellH = height / 16;
+    const styles = {
+      tnt: { colors: ["#ffffff", "#fde047", "#f97316", "#ef4444"], count: 24, speed: 6.5, gravity: 0.09, kind: "debris" },
+      drill: { colors: ["#fef3c7", "#f59e0b", "#78350f"], count: 18, speed: 4.4, gravity: 0.18, kind: "shard" },
+      lightning: { colors: ["#ffffff", "#67e8f9", "#38bdf8", "#fef08a"], count: 20, speed: 7.2, gravity: -0.02, kind: "spark" },
+      apple: { colors: ["#fecaca", "#ef4444", "#22c55e", "#ffffff"], count: 16, speed: 4.2, gravity: 0.06, kind: "orb" },
+      orange: { colors: ["#ffedd5", "#fb923c", "#f97316", "#fde047"], count: 20, speed: 5.3, gravity: 0.08, kind: "shard" },
+      banana: { colors: ["#fef9c3", "#fde047", "#facc15", "#ffffff"], count: 18, speed: 6, gravity: 0.04, kind: "spark" },
+      line: { colors: ["#ffffff", "#22d3ee", "#a855f7"], count: 14, speed: 4.2, gravity: 0.04, kind: "spark" },
+      match: { colors: ["#22d3ee", "#f59e0b", "#a855f7"], count: 12, speed: 3.8, gravity: 0.07, kind: "orb" },
+    };
+    const style = styles[effectType] || styles.match;
 
     explodingCells.forEach((cell) => {
       const cx = (cell.x + 0.5) * cellW;
       const cy = (cell.y + 0.5) * cellH;
 
-      const count = 10;
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < style.count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 3 + 1;
+        const speed = Math.random() * style.speed + 1;
         particlesRef.current.push({
           x: cx,
           y: cy,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - 0.5,
-          color: Math.random() < 0.5 ? "#22d3ee" : "#f59e0b",
-          size: Math.random() * 3 + 1.5,
+          color: style.colors[Math.floor(Math.random() * style.colors.length)],
+          size: Math.random() * (effectType === "tnt" ? 5 : 3.5) + 1.5,
           alpha: 1.0,
-          decay: Math.random() * 0.04 + 0.02,
+          decay: Math.random() * 0.032 + 0.014,
+          gravity: style.gravity,
+          kind: style.kind,
+          rotation: Math.random() * Math.PI,
+          spin: (Math.random() - 0.5) * 0.35,
         });
       }
     });
-  }, [explodingCells]);
+  }, [explodingCells, effectType]);
 
   const prevStreakRef = useRef(correctStreak);
   useEffect(() => {
@@ -640,6 +763,10 @@ function BoardParticlesCanvas({ explodingCells, correctStreak }) {
           size: Math.random() * 4 + 2,
           alpha: 1.0,
           decay: Math.random() * 0.03 + 0.015,
+          gravity: 0.03,
+          kind: "spark",
+          rotation: 0,
+          spin: 0,
         });
       }
     }
@@ -661,6 +788,8 @@ function BoardParticlesCanvas({ explodingCells, correctStreak }) {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
+        p.vy += p.gravity || 0;
+        p.rotation += p.spin || 0;
         p.alpha -= p.decay;
 
         if (p.alpha <= 0) {
@@ -673,9 +802,17 @@ function BoardParticlesCanvas({ explodingCells, correctStreak }) {
         ctx.fillStyle = p.color;
         ctx.shadowBlur = 6;
         ctx.shadowColor = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation || 0);
+        if (p.kind === "spark") {
+          ctx.fillRect(-p.size * 1.7, -0.8, p.size * 3.4, 1.6);
+        } else if (p.kind === "shard" || p.kind === "debris") {
+          ctx.fillRect(-p.size, -p.size * 0.45, p.size * 2, p.size * 0.9);
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
       }
 
@@ -711,12 +848,23 @@ function ScreenFlash({ tone }) {
   return <div className={`screen-flash screen-flash-${tone}`} aria-hidden="true" />;
 }
 
-function RunTelemetryPanel({ board, correctStreak, totalScore, misses, activePiece, isControllable }) {
+function RunTelemetryPanel({
+  board,
+  correctStreak,
+  totalScore,
+  misses,
+  activePiece,
+  isControllable,
+  targetScore,
+  strikesAllowed,
+  objective,
+  objectiveStatus,
+}) {
   const occupiedCells = board.reduce(
     (count, row) => count + row.reduce((rowCount, cell) => rowCount + (cell ? 1 : 0), 0),
     0
   );
-  const targetProgress = Math.min(100, Math.round((totalScore / WIN_SCORE_TARGET) * 100));
+  const targetProgress = Math.min(100, Math.round((totalScore / targetScore) * 100));
   const boardPressure = Math.min(100, Math.round((occupiedCells / (BOARD_WIDTH * BOARD_HEIGHT)) * 100));
   const chargeTarget = correctStreak < 3 ? 3 : correctStreak < 5 ? 5 : correctStreak < 7 ? 7 : 10;
   const chargeLabel = correctStreak < 3
@@ -744,10 +892,16 @@ function RunTelemetryPanel({ board, correctStreak, totalScore, misses, activePie
                 : "Stone";
 
   const meters = [
-    { label: "Score Run", value: `${totalScore}/${WIN_SCORE_TARGET}`, progress: targetProgress, tone: "cyan" },
+    { label: "Score Run", value: `${totalScore}/${targetScore}`, progress: targetProgress, tone: "cyan" },
+    {
+      label: "Mission",
+      value: `${objectiveStatus.current}/${objectiveStatus.required}`,
+      progress: objectiveStatus.progress,
+      tone: objectiveStatus.complete ? "emerald" : "purple",
+    },
     { label: chargeLabel, value: `${correctStreak}x`, progress: chargeProgress, tone: "amber" },
     { label: "Board Heat", value: `${boardPressure}%`, progress: boardPressure, tone: boardPressure > 55 ? "red" : "emerald" },
-    { label: "Strike Risk", value: `${misses}/${STRIKES_ALLOWED}`, progress: (misses / STRIKES_ALLOWED) * 100, tone: "red" },
+    { label: "Strike Risk", value: `${misses}/${strikesAllowed}`, progress: (misses / strikesAllowed) * 100, tone: "red" },
   ];
 
   return (
@@ -787,6 +941,9 @@ function RunTelemetryPanel({ board, correctStreak, totalScore, misses, activePie
           </div>
         </div>
       ))}
+      <p className="col-span-2 text-center text-[10px] font-black uppercase tracking-widest text-purple-300">
+        Mission: {objective.label}
+      </p>
     </div>
   );
 }
@@ -1026,16 +1183,112 @@ function MenuStatPill({ label, value, accent = "text-cyan-300" }) {
   );
 }
 
+function AchievementCard({ id, definition, unlocked, stats, maxUnlockedLevel }) {
+  const progressById = {
+    first_win: [stats.levelsWon || 0, 1],
+    line: [stats.totalLines || 0, 1],
+    bigmatch: [stats.totalMatches || 0, 1],
+    tnt: [stats.bestStreak || 0, 3],
+    drill: [stats.bestStreak || 0, 5],
+    lightning: [stats.bestStreak || 0, 7],
+    streak10: [stats.bestStreak || 0, 10],
+    level5: [Math.max(0, maxUnlockedLevel - 1), 5],
+    level10: [Math.max(0, maxUnlockedLevel - 1), 10],
+    champion: [Math.max(0, maxUnlockedLevel - 1), 20],
+    daily: [stats.lastDailyWin ? 1 : 0, 1],
+    scholar: [stats.totalCorrect || 0, 100],
+    veteran: [stats.totalGames || 0, 10],
+    arena: [stats.arenaWins || 0, 1],
+    glitch_hoard: [stats.glitches || 0, 1000],
+  };
+  const progress = progressById[id];
+  const percentage = unlocked
+    ? 100
+    : progress
+      ? Math.min(100, Math.round((progress[0] / progress[1]) * 100))
+      : 0;
+
+  return (
+    <article className={unlocked ? "achievement-card achievement-card-unlocked" : "achievement-card achievement-card-locked"}>
+      <div className="achievement-card-icon" aria-hidden="true">{unlocked ? definition.emoji : "?"}</div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-2">
+          <h3>{definition.label}</h3>
+          <span className={unlocked ? "achievement-status achievement-status-earned" : "achievement-status"}>
+            {unlocked ? "Earned" : "Locked"}
+          </span>
+        </div>
+        <p>{definition.desc}</p>
+        <div className="achievement-progress" aria-label={`${definition.label} progress`}>
+          <span style={{ width: `${percentage}%` }} />
+        </div>
+        <small>
+          {unlocked
+            ? "Complete"
+            : progress
+              ? `${Math.min(progress[0], progress[1])} / ${progress[1]}`
+              : "Complete this challenge in one run"}
+        </small>
+      </div>
+    </article>
+  );
+}
+
+function PiecePreview({ label, piece, muted = false }) {
+  const shape = piece?.shape || [[0]];
+  const columns = Math.max(1, shape[0]?.length || 1);
+
+  return (
+    <div className={muted ? "piece-preview piece-preview-muted" : "piece-preview"}>
+      <span className="piece-preview-label">{label}</span>
+      <div
+        className="piece-preview-grid"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
+        {shape.flatMap((row, y) =>
+          row.map((value, x) => (
+            <span
+              key={`${y}-${x}`}
+              className={value ? `piece-preview-cell ${piece?.color || "bg-slate-600"}` : "piece-preview-cell piece-preview-cell-empty"}
+            >
+              {value ? piece?.emoji || "" : ""}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // -------------------------------------------------------------------------
 // Main App Component
 // -------------------------------------------------------------------------
 export default function App() {
   const [gameState, setGameState] = useState("start");
   const [menuTab, setMenuTab] = useState("levels");
+  const [profiles, setProfiles] = useState(readProfiles);
+  const [activeProfileId, setActiveProfileId] = useState(getActiveProfileId);
+  const activeProfile = useMemo(
+    () => profiles.find((profile) => profile.id === activeProfileId) || profiles[0],
+    [profiles, activeProfileId]
+  );
+  const [difficultyMode, setDifficultyMode] = useState(
+    () => activeProfile?.difficulty || "normal"
+  );
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => !activeProfile?.onboardingComplete
+  );
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [profileAvatarDraft, setProfileAvatarDraft] = useState("🚀");
+  const [runMode, setRunMode] = useState("campaign");
   const [level, setLevel] = useState(1);
   const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(readSavedProgress);
   const [board, setBoard] = useState(createEmptyBoard());
   const [activePiece, setActivePiece] = useState(null);
+  const [nextPiece, setNextPiece] = useState(null);
+  const [heldPiece, setHeldPiece] = useState(null);
+  const [holdUsed, setHoldUsed] = useState(false);
 
   const [shuffledQuestions, setShuffledQuestions] = useState([]);
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -1047,6 +1300,7 @@ export default function App() {
   const [isControllable, setIsControllable] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [explodingCells, setExplodingCells] = useState([]);
+  const [blastEffect, setBlastEffect] = useState("match");
 
   // Immersion & volume settings states
   const [maxStreak, setMaxStreak] = useState(0);
@@ -1057,6 +1311,41 @@ export default function App() {
   const [masterVol, setMasterVolState] = useState(() => getVolumeSettings().masterVolume);
   const [musicVol, setMusicVolState] = useState(() => getVolumeSettings().musicVolume);
   const [sfxVol, setSfxVolState] = useState(() => getVolumeSettings().sfxVolume);
+  const [reduceMotion, setReduceMotion] = useState(() =>
+    readBooleanPreference(
+      "think-fast-blast-reduce-motion",
+      typeof window !== "undefined" &&
+        Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches)
+    )
+  );
+  const [screenShakeEnabled, setScreenShakeEnabled] = useState(() =>
+    readBooleanPreference("think-fast-blast-screen-shake", true)
+  );
+  const [hapticsEnabled, setHapticsEnabled] = useState(() =>
+    readBooleanPreference("think-fast-blast-haptics", true)
+  );
+  const [highContrast, setHighContrast] = useState(() =>
+    readBooleanPreference("think-fast-blast-high-contrast", false)
+  );
+
+  // Arena VS Mode States
+  const [arenaMode, setArenaMode] = useState("vs_ai"); // "vs_ai" or "vs_player"
+  const [aiDifficulty, setAiDifficulty] = useState("medium"); // "easy", "medium", "hard"
+  const [arenaResult, setArenaResult] = useState(null); // "p1_win", "p2_win", "ai_win"
+  const [arenaLevel, setArenaLevel] = useState(1); // selected theme level 1-20
+
+  const [board2, setBoard2] = useState(createEmptyBoard());
+  const [activePiece2, setActivePiece2] = useState(null);
+  const [totalScore2, setTotalScore2] = useState(0);
+  const [correctStreak2, setCorrectStreak2] = useState(0);
+  const [misses2, setMisses2] = useState(0);
+  const [isControllable2, setIsControllable2] = useState(false);
+
+  const [p1Answered, setP1Answered] = useState(null); // null, "correct", "wrong"
+  const [p2Answered, setP2Answered] = useState(null); // null, "correct", "wrong"
+  const [explodingCells2, setExplodingCells2] = useState([]);
+  const [floatingTexts2, setFloatingTexts2] = useState([]);
+  const [shake2, setShake2] = useState(false);
 
   // Custom Question Builder States
   const [customQuestions, setCustomQuestions] = useState(() => {
@@ -1322,7 +1611,7 @@ export default function App() {
     const shareText = `🎮 ThinkFastBlast React Game 🎮
 ${statusText}
 🔥 Level ${level}: ${currentLvl.name}
-🏆 Score: ${totalScore} / ${WIN_SCORE_TARGET}
+🏆 Score: ${totalScore} / ${runTarget}
 💡 Trivia Correct: ${questionsAnsweredThisLevel}
 🔥 Max Streak: ${maxStreak} ${starsEmoji}
 👾 Glitches Earned: ${gameState === "level_win" ? Math.floor(totalScore / 10) + (level * 10) : Math.max(1, Math.floor(totalScore / 20) + (level * 2))}
@@ -1364,6 +1653,13 @@ Can you beat my score? Play ThinkFastBlast!`;
   const earnedRef = useRef(null);
   const electrifyTimerRef = useRef(0);
   const [randomFact, setRandomFact] = useState("");
+  const [runMetrics, setRunMetrics] = useState({
+    lines: 0,
+    matches: 0,
+    fruits: 0,
+    specials: 0,
+    questions: 0,
+  });
 
   // Audio Toggle State
   const [audioOn, setAudioOn] = useState(() => {
@@ -1376,9 +1672,19 @@ Can you beat my score? Play ThinkFastBlast!`;
   });
 
   const canPause = PLAYABLE_STATES.has(gameState);
+  const runConfig = useMemo(
+    () => getRunConfig(level, difficultyMode),
+    [level, difficultyMode]
+  );
+  const runTarget = runConfig.target;
+  const strikeLimit = runConfig.difficulty.strikes;
+  const objectiveStatus = getObjectiveStatus(runConfig, {
+    ...runMetrics,
+    score: totalScore,
+    maxStreak,
+  });
+  const dailyChallengeKey = getDailyChallengeKey();
 
-  // Timers and keyboard events need the newest state without being rebuilt on
-  // every render. This ref mirrors the live game state for those callbacks.
   const stateRef = useRef({
     board,
     activePiece,
@@ -1391,6 +1697,18 @@ Can you beat my score? Play ThinkFastBlast!`;
     shuffledQuestions,
     misses,
     questionsSinceLastRise,
+    runMetrics,
+    // Arena
+    board2,
+    activePiece2,
+    totalScore2,
+    correctStreak2,
+    misses2,
+    isControllable2,
+    p1Answered,
+    p2Answered,
+    arenaMode,
+    aiDifficulty,
   });
   const touchStartRef = useRef(null);
   const flashTimerRef = useRef(null);
@@ -1434,12 +1752,98 @@ Can you beat my score? Play ThinkFastBlast!`;
       shuffledQuestions,
       misses,
       questionsSinceLastRise,
+      runMetrics,
+      // Arena
+      board2,
+      activePiece2,
+      totalScore2,
+      correctStreak2,
+      misses2,
+      isControllable2,
+      p1Answered,
+      p2Answered,
+      arenaMode,
+      aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
   useEffect(() => {
-    localStorage.setItem(PROGRESS_STORAGE_KEY, String(maxUnlockedLevel));
+    saveProgress(maxUnlockedLevel);
   }, [maxUnlockedLevel]);
+
+  const handleProfileSwitch = useCallback((profileId) => {
+    const nextProfile = profiles.find((profile) => profile.id === profileId);
+    if (!nextProfile || nextProfile.id === activeProfileId) return;
+
+    persistActiveProfileId(profileId);
+    setActiveProfileId(profileId);
+    setDifficultyMode(nextProfile.difficulty || "normal");
+    setShowOnboarding(!nextProfile.onboardingComplete);
+    setOnboardingStep(0);
+    setStats(readSavedStats());
+    setMaxUnlockedLevel(readSavedProgress());
+    earnedRef.current = null;
+    setGameState("start");
+    setMenuTab("levels");
+    playSFX("theme");
+  }, [profiles, activeProfileId]);
+
+  const handleDifficultyChange = useCallback((difficultyId) => {
+    if (!DIFFICULTY_PRESETS[difficultyId]) return;
+    setDifficultyMode(difficultyId);
+    const updated = updateProfile(activeProfileId, { difficulty: difficultyId });
+    setProfiles((current) =>
+      current.map((profile) => profile.id === updated.id ? updated : profile)
+    );
+    playSFX("button");
+  }, [activeProfileId]);
+
+  const completeOnboarding = useCallback(() => {
+    const updated = updateProfile(activeProfileId, { onboardingComplete: true });
+    setProfiles((current) =>
+      current.map((profile) => profile.id === updated.id ? updated : profile)
+    );
+    setShowOnboarding(false);
+    setOnboardingStep(0);
+    playSFX("unlock");
+  }, [activeProfileId]);
+
+  const handleCreateProfile = useCallback(() => {
+    const created = createProfile({
+      name: profileNameDraft,
+      avatar: profileAvatarDraft,
+      difficulty: "normal",
+    });
+    const nextProfiles = readProfiles();
+    setProfiles(nextProfiles);
+    setProfileNameDraft("");
+    persistActiveProfileId(created.id);
+    setActiveProfileId(created.id);
+    setDifficultyMode(created.difficulty);
+    setShowOnboarding(true);
+    setOnboardingStep(0);
+    setStats(readSavedStats());
+    setMaxUnlockedLevel(readSavedProgress());
+    earnedRef.current = null;
+    playSFX("unlock");
+  }, [profileNameDraft, profileAvatarDraft]);
+
+  const handleDeleteProfile = useCallback((profileId) => {
+    if (profiles.length <= 1) return;
+    const remaining = deleteProfile(profileId);
+    setProfiles(remaining);
+    if (profileId === activeProfileId) {
+      const nextId = getActiveProfileId();
+      setActiveProfileId(nextId);
+      const nextProfile = remaining.find((profile) => profile.id === nextId) || remaining[0];
+      setDifficultyMode(nextProfile.difficulty || "normal");
+      setShowOnboarding(!nextProfile.onboardingComplete);
+      setStats(readSavedStats());
+      setMaxUnlockedLevel(readSavedProgress());
+      earnedRef.current = null;
+    }
+    playSFX("button");
+  }, [profiles.length, activeProfileId]);
 
   // Handle programmatic audio enabled state
   useEffect(() => {
@@ -1451,14 +1855,27 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
   }, [audioOn]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("think-fast-blast-reduce-motion", String(reduceMotion));
+      localStorage.setItem("think-fast-blast-screen-shake", String(screenShakeEnabled));
+      localStorage.setItem("think-fast-blast-haptics", String(hapticsEnabled));
+      localStorage.setItem("think-fast-blast-high-contrast", String(highContrast));
+    } catch {
+      // Preference persistence is optional in restricted browsing contexts.
+    }
+  }, [reduceMotion, screenShakeEnabled, hapticsEnabled, highContrast]);
+
   // Trigger screen shake
-  const triggerShake = () => {
+  const triggerShake = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
     setShake(true);
     setTimeout(() => setShake(false), 300);
-  };
+  }, [reduceMotion, screenShakeEnabled]);
 
   // Tactile feedback on mobile. Silently no-ops where unsupported.
   const vibrate = useCallback((pattern) => {
+    if (!hapticsEnabled) return;
     try {
       if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
         navigator.vibrate(pattern);
@@ -1466,7 +1883,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     } catch {
       // Vibration can be blocked by browser policy; ignore.
     }
-  }, []);
+  }, [hapticsEnabled]);
 
   // Transient pop-up notifications (achievements, records). Auto-dismiss.
   const pushToast = useCallback((toast) => {
@@ -1493,7 +1910,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       if (prev.unlockedAchievements?.includes(id)) return prev;
       const next = { ...prev, unlockedAchievements: [...(prev.unlockedAchievements || []), id] };
       try {
-        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(next));
+        saveStats(next);
       } catch {
         // Storage may be unavailable; the toast still fired.
       }
@@ -1554,15 +1971,17 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Memoized game end handler to save stats, high scores, glitches and trigger audio
   const handleGameEnd = useCallback((isWin, finalScore) => {
     setIsPaused(false);
+    const savedSnapshot = readSavedStats();
+    const completedRunMetrics = stateRef.current.runMetrics || runMetrics;
 
     // New personal-best answer streak (recurring celebration, persisted).
-    const savedBest = readSavedStats().bestStreak || 0;
+    const savedBest = savedSnapshot.bestStreak || 0;
     if (maxStreak > savedBest && maxStreak >= 3) {
       pushToast({ kind: "record", emoji: "🏆", title: "New Record Streak!", desc: `Best answer streak: x${maxStreak}` });
       setStats((prev) => {
         const next = { ...prev, bestStreak: Math.max(prev.bestStreak || 0, maxStreak) };
         try {
-          localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(next));
+          saveStats(next);
         } catch {
           // Storage may be unavailable.
         }
@@ -1571,30 +1990,72 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
     if (isWin && stateRef.current.misses === 0) {
       pushToast({ kind: "record", emoji: "🌟", title: "Flawless!", desc: "Cleared the level with zero strikes" });
+      unlockAchievement("flawless");
     }
 
-    const levelMultiplier = level === 99 ? 5 : level;
+    const levelMultiplier = runMode === "campaign" ? level : 5;
+    const unlockProgressMilestones = (glitchesEarned) => {
+      if ((savedSnapshot.totalCorrect || 0) + questionsAnsweredThisLevel >= 100) {
+        unlockAchievement("scholar");
+      }
+      if ((savedSnapshot.totalGames || 0) + 1 >= 10) {
+        unlockAchievement("veteran");
+      }
+      if ((savedSnapshot.glitches || 0) + glitchesEarned >= 1000) {
+        unlockAchievement("glitch_hoard");
+      }
+    };
+
     if (isWin) {
       playSFX("level_win");
       triggerFlash("win");
       setGameState("level_win");
-      if (level < FINAL_LEVEL_ID && level !== 99) setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
-      
+      unlockAchievement("first_win");
+      if (runMode === "daily") unlockAchievement("daily");
+      if (runMode === "campaign" && level >= 5) unlockAchievement("level5");
+      if (runMode === "campaign" && level >= 10) unlockAchievement("level10");
+      if (runMode === "campaign" && level >= FINAL_LEVEL_ID) unlockAchievement("champion");
+      if (runMode === "campaign" && level < FINAL_LEVEL_ID) {
+        setMaxUnlockedLevel((prev) => Math.max(prev, level + 1));
+      }
+
       const glitchesEarned = Math.floor(finalScore / 10) + (levelMultiplier * 10);
+      unlockProgressMilestones(glitchesEarned);
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
-        
+
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayKey = getDailyChallengeKey(yesterday);
+        const completedDailyToday = runMode === "daily" && prevStats.lastDailyWin === dailyChallengeKey;
+        const nextDailyStreak = runMode !== "daily"
+          ? prevStats.dailyStreak || 0
+          : completedDailyToday
+            ? prevStats.dailyStreak || 1
+            : prevStats.lastDailyWin === yesterdayKey
+              ? (prevStats.dailyStreak || 0) + 1
+              : 1;
         const newStats = {
           ...prevStats,
           highScores: updatedHighScores,
           totalGames: prevStats.totalGames + 1,
           totalCorrect: prevStats.totalCorrect + questionsAnsweredThisLevel,
           totalQuestions: prevStats.totalQuestions + (questionIndex + 1),
-          glitches: (prevStats.glitches || 0) + glitchesEarned
+          glitches: (prevStats.glitches || 0) + glitchesEarned,
+          dailyStreak: nextDailyStreak,
+          lastDailyWin: runMode === "daily" ? dailyChallengeKey : prevStats.lastDailyWin,
+          dailyBest: runMode === "daily"
+            ? Math.max(prevStats.dailyBest || 0, finalScore)
+            : prevStats.dailyBest || 0,
+          levelsWon: (prevStats.levelsWon || 0) + 1,
+          totalLines: (prevStats.totalLines || 0) + completedRunMetrics.lines,
+          totalMatches: (prevStats.totalMatches || 0) + completedRunMetrics.matches,
+          totalFruits: (prevStats.totalFruits || 0) + completedRunMetrics.fruits,
+          totalSpecials: (prevStats.totalSpecials || 0) + completedRunMetrics.specials,
         };
-        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+        saveStats(newStats);
         return newStats;
       });
       setFeedback(`Victory! Earned ${glitchesEarned} Glitches.`);
@@ -1602,27 +2063,489 @@ Can you beat my score? Play ThinkFastBlast!`;
       playSFX("gameover");
       triggerFlash("danger");
       setGameState("gameover");
-      
+
       const glitchesEarned = Math.max(1, Math.floor(finalScore / 20) + (levelMultiplier * 2));
+      unlockProgressMilestones(glitchesEarned);
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
- 
+
         const newStats = {
           ...prevStats,
           highScores: updatedHighScores,
           totalGames: prevStats.totalGames + 1,
           totalCorrect: prevStats.totalCorrect + questionsAnsweredThisLevel,
           totalQuestions: prevStats.totalQuestions + (questionIndex + 1),
-          glitches: (prevStats.glitches || 0) + glitchesEarned
+          glitches: (prevStats.glitches || 0) + glitchesEarned,
+          totalLines: (prevStats.totalLines || 0) + completedRunMetrics.lines,
+          totalMatches: (prevStats.totalMatches || 0) + completedRunMetrics.matches,
+          totalFruits: (prevStats.totalFruits || 0) + completedRunMetrics.fruits,
+          totalSpecials: (prevStats.totalSpecials || 0) + completedRunMetrics.specials,
         };
-        localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(newStats));
+        saveStats(newStats);
         return newStats;
       });
       setFeedback(`Game Over! Earned ${glitchesEarned} Glitches.`);
     }
-  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash, maxStreak, pushToast]);
+  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash, maxStreak, pushToast, runMode, dailyChallengeKey, runMetrics, unlockAchievement]);
+
+  // -------------------------------------------------------------------------
+  // Arena VS Mode Side-by-Side Callbacks & Loops
+  // -------------------------------------------------------------------------
+  const lockPiece2 = useCallback(() => {
+    const { activePiece2: piece, board2: currentBoard } = stateRef.current;
+    if (!piece) return;
+
+    playSFX("lock");
+
+    const nextBoard = currentBoard.map((row) => [...row]);
+    piece.shape.forEach((row, y) => {
+      row.forEach((value, x) => {
+        if (!value) return;
+        const boardY = piece.y + y;
+        const boardX = piece.x + x;
+        if (boardY >= 0) {
+          nextBoard[boardY][boardX] = {
+            color: piece.color,
+            isFruit: piece.isFruit || false,
+            fruitType: piece.fruitType || "",
+            emoji: piece.emoji || "",
+            isStone: piece.isStone || false,
+            isTNT: piece.isTNT || false,
+            isDrill: piece.isDrill || false,
+            isLightning: piece.isLightning || false,
+            isSlime: piece.isSlime || false,
+            isCatalystBomb: piece.isCatalystBomb || false,
+            isWildcard: piece.isWildcard || false,
+          };
+        }
+      });
+    });
+
+    setBoard2(nextBoard);
+    setActivePiece2(null);
+    setGameState("arena_resolving");
+  }, []);
+
+  const moveDown2 = useCallback(() => {
+    const { activePiece2: piece, board2: currentBoard, isPaused: paused } = stateRef.current;
+    if (paused) return;
+    if (!piece) return;
+
+    const movedPiece = { ...piece, y: piece.y + 1 };
+    if (!checkCollision(movedPiece, currentBoard)) setActivePiece2(movedPiece);
+    else lockPiece2();
+  }, [lockPiece2]);
+
+  const moveHorizontal2 = useCallback((dir) => {
+    const { activePiece2: piece, board2: currentBoard, isControllable2: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
+    if (!piece || !canControl || state !== "arena_dropping") return;
+
+    const movedPiece = { ...piece, x: piece.x + dir };
+    if (!checkCollision(movedPiece, currentBoard)) {
+      setActivePiece2(movedPiece);
+    }
+  }, []);
+
+  const rotatePiece2 = useCallback(() => {
+    const { activePiece2: piece, board2: currentBoard, isControllable2: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
+    if (!piece || !canControl || state !== "arena_dropping" || piece.isFruit) return;
+
+    const rotatedPiece = { ...piece, shape: rotateShapeClockwise(piece.shape) };
+    if (!checkCollision(rotatedPiece, currentBoard)) {
+      playSFX("rotate");
+      setActivePiece2(rotatedPiece);
+    }
+  }, []);
+
+  const hardDrop2 = useCallback(() => {
+    const { activePiece2: piece, board2: currentBoard, isControllable2: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    if (paused) return;
+    if (!piece || !canControl || state !== "arena_dropping") return;
+
+    let y = piece.y;
+    while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
+    const droppedPiece = { ...piece, y };
+    playSFX("drop");
+    setActivePiece2(droppedPiece);
+
+    const nextBoard = currentBoard.map((row) => [...row]);
+    droppedPiece.shape.forEach((row, shapeY) => {
+      row.forEach((value, shapeX) => {
+        if (!value) return;
+        const boardY = droppedPiece.y + shapeY;
+        const boardX = droppedPiece.x + shapeX;
+        if (boardY >= 0) {
+          nextBoard[boardY][boardX] = {
+            color: droppedPiece.color,
+            isFruit: droppedPiece.isFruit || false,
+            fruitType: droppedPiece.fruitType || "",
+            emoji: droppedPiece.emoji || "",
+            isStone: droppedPiece.isStone || false,
+            isTNT: droppedPiece.isTNT || false,
+            isDrill: droppedPiece.isDrill || false,
+            isLightning: droppedPiece.isLightning || false,
+            isSlime: droppedPiece.isSlime || false,
+            isCatalystBomb: droppedPiece.isCatalystBomb || false,
+            isWildcard: droppedPiece.isWildcard || false,
+          };
+        }
+      });
+    });
+    setBoard2(nextBoard);
+    setActivePiece2(null);
+    setGameState("arena_resolving");
+  }, []);
+
+  const addFloatingText2 = useCallback((text, x = 4, y = 8) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setFloatingTexts2((prev) => [...prev, { id, text, x, y }]);
+    setTimeout(() => {
+      setFloatingTexts2((prev) => prev.filter((t) => t.id !== id));
+    }, 900);
+  }, []);
+
+  const triggerShake2 = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
+    setShake2(true);
+    setTimeout(() => setShake2(false), 300);
+  }, [reduceMotion, screenShakeEnabled]);
+
+  const handleArenaGameEnd = useCallback((winner) => {
+    setIsPaused(false);
+    stopArpeggiator();
+
+    if (winner === 1) {
+      playSFX("level_win");
+      setArenaResult("p1_win");
+      unlockAchievement("arena");
+      setStats((prev) => {
+        const next = {
+          ...prev,
+          glitches: (prev.glitches || 0) + 50,
+          arenaWins: (prev.arenaWins || 0) + 1,
+        };
+        saveStats(next);
+        return next;
+      });
+    } else {
+      playSFX("gameover");
+      setArenaResult(stateRef.current.arenaMode === "vs_ai" ? "ai_win" : "p2_win");
+      setStats((prev) => {
+        const next = { ...prev, glitches: (prev.glitches || 0) + 10 };
+        saveStats(next);
+        return next;
+      });
+    }
+    setGameState("arena_win");
+  }, [unlockAchievement]);
+
+  const pushGarbageRows = useCallback((targetPlayer, count) => {
+    if (count <= 0) return;
+    const targetBoard = targetPlayer === 1 ? stateRef.current.board : stateRef.current.board2;
+    const setTargetBoard = targetPlayer === 1 ? setBoard : setBoard2;
+    const triggerFlashTarget = targetPlayer === 1 ? () => triggerFlash("danger") : () => {};
+    const addFloatingTextTarget = targetPlayer === 1 ? addFloatingText : addFloatingText2;
+
+    // Check top out
+    let toppedOut = false;
+    for (let r = 0; r < count; r++) {
+      if (targetBoard[r].some(cell => cell !== null)) {
+        toppedOut = true;
+        break;
+      }
+    }
+
+    if (toppedOut) {
+      handleArenaGameEnd(targetPlayer === 1 ? 2 : 1);
+      return;
+    }
+
+    // Create garbage rows
+    const garbageRows = [];
+    for (let i = 0; i < count; i++) {
+      const row = Array(BOARD_WIDTH).fill(null);
+      const gap = Math.floor(Math.random() * BOARD_WIDTH);
+      for (let x = 0; x < BOARD_WIDTH; x++) {
+        if (x !== gap) {
+          row[x] = {
+            color: "bg-slate-500",
+            emoji: "🧱",
+            isStone: true,
+          };
+        }
+      }
+      garbageRows.push(row);
+    }
+
+    const nextBoard = [...targetBoard.slice(count), ...garbageRows];
+    setTargetBoard(nextBoard);
+
+    if (targetPlayer === 1) {
+      triggerShake();
+      triggerFlashTarget();
+      addFloatingTextTarget(`GARBAGE INJECTED! 🌋 +${count}`, 4, BOARD_HEIGHT - 2);
+    } else {
+      triggerShake2();
+      addFloatingTextTarget(`GARBAGE INJECTED! 🌋 +${count}`, 4, BOARD_HEIGHT - 2);
+    }
+  }, [triggerFlash, addFloatingText, addFloatingText2, handleArenaGameEnd, triggerShake, triggerShake2]);
+
+  const handleArenaTimeOut = useCallback(() => {
+    const { activePiece: piece1, activePiece2: piece2, board, board2 } = stateRef.current;
+
+    playSFX("incorrect");
+
+    // For P1
+    if (piece1 && p1Answered === null) {
+      setP1Answered("wrong");
+      setIsControllable(false);
+      const nextBoard = board.map(row => [...row]);
+      piece1.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (!value) return;
+          const boardY = piece1.y + y;
+          const boardX = piece1.x + x;
+          if (boardY >= 0) {
+            nextBoard[boardY][boardX] = {
+              color: "bg-slate-500",
+              isStone: true,
+              emoji: "🧱"
+            };
+          }
+        });
+      });
+      setBoard(nextBoard);
+      setActivePiece(null);
+      addFloatingText("TIMEOUT! 🧱", piece1.x, piece1.y);
+    }
+
+    // For P2
+    if (piece2 && p2Answered === null) {
+      setP2Answered("wrong");
+      setIsControllable2(false);
+      const nextBoard = board2.map(row => [...row]);
+      piece2.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (!value) return;
+          const boardY = piece2.y + y;
+          const boardX = piece2.x + x;
+          if (boardY >= 0) {
+            nextBoard[boardY][boardX] = {
+              color: "bg-slate-500",
+              isStone: true,
+              emoji: "🧱"
+            };
+          }
+        });
+      });
+      setBoard2(nextBoard);
+      setActivePiece2(null);
+      addFloatingText2("TIMEOUT! 🧱", piece2.x, piece2.y);
+    }
+
+    setGameState("arena_resolving");
+  }, [p1Answered, p2Answered, addFloatingText, addFloatingText2]);
+
+  const spawnArenaPieces = useCallback(() => {
+    const isFirstBlock = stateRef.current.questionIndex === 0;
+
+    let pieceBase;
+    if (isFirstBlock) {
+      pieceBase = randomItem(TETROMINOES);
+    } else {
+      const spawnRoll = Math.random();
+      if (spawnRoll < 0.1) {
+        pieceBase = randomItem(FRUITS);
+      } else {
+        pieceBase = randomItem(TETROMINOES);
+      }
+    }
+
+    const width = pieceBase.shape[0].length;
+    const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
+
+    const newPiece1 = {
+      ...pieceBase,
+      color: pieceBase.color,
+      emoji: pieceBase.emoji || "",
+      isSlime: false,
+      x,
+      y: 0,
+    };
+
+    const newPiece2 = {
+      ...pieceBase,
+      color: pieceBase.color,
+      emoji: pieceBase.emoji || "",
+      isSlime: false,
+      x,
+      y: 0,
+    };
+
+    if (checkCollision(newPiece1, stateRef.current.board)) {
+      handleArenaGameEnd(2);
+      return;
+    }
+    if (checkCollision(newPiece2, stateRef.current.board2)) {
+      handleArenaGameEnd(1);
+      return;
+    }
+
+    setActivePiece(newPiece1);
+    setActivePiece2(newPiece2);
+    setP1Answered(null);
+    setP2Answered(null);
+    setIsControllable(false);
+    setIsControllable2(false);
+
+    setQuestionStartTime(Date.now());
+  }, [handleArenaGameEnd]);
+
+  const handleArenaAnswer = useCallback((playerIndex, selectedIndex) => {
+    if (stateRef.current.isPaused || stateRef.current.gameState !== "arena_quiz") return;
+
+    const question = shuffledQuestions[stateRef.current.questionIndex];
+    if (!question) return;
+    const correct = selectedIndex === question.answer;
+
+    if (playerIndex === 1) {
+      if (p1Answered !== null) return;
+      if (correct) {
+        setP1Answered("correct");
+        playSFX("correct", correctStreak + 1);
+        setCorrectStreak(prev => prev + 1);
+        setTotalScore(prev => prev + POINTS.CORRECT_ANSWER);
+        setIsControllable(true);
+        addFloatingText("CORRECT! ⚡", activePiece?.x || 5, activePiece?.y || 2);
+
+        if (p2Answered === null) {
+          setP2Answered("wrong");
+          setIsControllable2(false);
+          if (activePiece2) {
+            setActivePiece2(prev => ({
+              ...prev,
+              color: "bg-slate-500",
+              emoji: "🧱",
+              isStone: true
+            }));
+          }
+          addFloatingText2("LOCKED OUT! 🧱", activePiece2?.x || 5, activePiece2?.y || 2);
+        }
+
+        setGameState("arena_dropping");
+      } else {
+        setP1Answered("wrong");
+        playSFX("incorrect");
+        setCorrectStreak(0);
+        setIsControllable(false);
+        if (activePiece) {
+          setActivePiece(prev => ({
+            ...prev,
+            color: "bg-slate-500",
+            emoji: "🧱",
+            isStone: true
+          }));
+        }
+        addFloatingText("WRONG! 🧱", activePiece?.x || 5, activePiece?.y || 2);
+
+        if (p2Answered !== null) {
+          setGameState("arena_dropping");
+        }
+      }
+    } else {
+      if (p2Answered !== null) return;
+      if (correct) {
+        setP2Answered("correct");
+        playSFX("correct", correctStreak2 + 1);
+        setCorrectStreak2(prev => prev + 1);
+        setTotalScore2(prev => prev + POINTS.CORRECT_ANSWER);
+        setIsControllable2(true);
+        addFloatingText2("CORRECT! ⚡", activePiece2?.x || 5, activePiece2?.y || 2);
+
+        if (p1Answered === null) {
+          setP1Answered("wrong");
+          setIsControllable(false);
+          if (activePiece) {
+            setActivePiece(prev => ({
+              ...prev,
+              color: "bg-slate-500",
+              emoji: "🧱",
+              isStone: true
+            }));
+          }
+          addFloatingText("LOCKED OUT! 🧱", activePiece?.x || 5, activePiece?.y || 2);
+        }
+
+        setGameState("arena_dropping");
+      } else {
+        setP2Answered("wrong");
+        playSFX("incorrect");
+        setCorrectStreak2(0);
+        setIsControllable2(false);
+        if (activePiece2) {
+          setActivePiece2(prev => ({
+            ...prev,
+            color: "bg-slate-500",
+            emoji: "🧱",
+            isStone: true
+          }));
+        }
+        addFloatingText2("WRONG! 🧱", activePiece2?.x || 5, activePiece2?.y || 2);
+
+        if (p1Answered !== null) {
+          setGameState("arena_dropping");
+        }
+      }
+    }
+  }, [shuffledQuestions, p1Answered, p2Answered, correctStreak, correctStreak2, activePiece, activePiece2, addFloatingText, addFloatingText2]);
+
+  const startArenaMatch = useCallback((mode, diff, selectedLvl) => {
+    playSFX("race_start");
+    setArenaMode(mode);
+    setAiDifficulty(diff);
+    setArenaLevel(selectedLvl);
+    setArenaResult(null);
+
+    const questions = buildQuestionDeck({
+      level: selectedLvl,
+      banks: { ...QUESTION_BANKS, 99: customQuestions },
+      recentIds: readRecentQuestionIds(),
+      size: 60,
+      seed: `arena-${selectedLvl}-${Date.now()}`,
+    });
+    setShuffledQuestions(questions);
+    setQuestionIndex(0);
+
+    setBoard(createEmptyBoard());
+    setBoard2(createEmptyBoard());
+    setActivePiece(null);
+    setActivePiece2(null);
+
+    setTotalScore(0);
+    setTotalScore2(0);
+    setCorrectStreak(0);
+    setCorrectStreak2(0);
+    setMisses(0);
+    setMisses2(0);
+
+    setIsControllable(false);
+    setIsControllable2(false);
+    setP1Answered(null);
+    setP2Answered(null);
+
+    setFeedback("Get Ready...");
+    setExplodingCells([]);
+    setExplodingCells2([]);
+    setFloatingTexts([]);
+    setFloatingTexts2([]);
+
+    setIntroCountdown(3);
+    setGameState("arena_intro");
+  }, [customQuestions]);
 
   // Floor rising hazard
   const triggerFloorRise = useCallback((currentBoard) => {
@@ -1652,7 +2575,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     triggerFlash("danger");
     addFloatingText("FLOOR RISING! 🌋", 4, BOARD_HEIGHT - 2);
     setFeedback("Warning: Floor rising!");
-  }, [totalScore, handleGameEnd, addFloatingText, triggerFlash]);
+  }, [totalScore, handleGameEnd, addFloatingText, triggerFlash, triggerShake]);
 
   // Timeout triggers
   const handleTimeOut = useCallback(() => {
@@ -1684,16 +2607,27 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     const question = questions[qIdx];
     const correctAnswer = question ? question.options[question.answer] : "unknown";
+    rememberQuestionId(question?.id);
+    setRunMetrics((metrics) => ({
+      ...metrics,
+      questions: metrics.questions + 1,
+    }));
 
     const nextMisses = currentMisses + 1;
     setMisses(nextMisses);
     setLastCorrectAnswer(correctAnswer);
     setFeedback(`Time's up! The answer was: ${correctAnswer}. Stone block locked!`);
 
-    if (nextMisses >= STRIKES_ALLOWED) {
+    if (nextMisses >= strikeLimit) {
       const activeLevel = level;
-      const levelQuestions = activeLevel === 99 ? customQuestions : (QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1]);
-      const q = randomItem(levelQuestions);
+      const recoveryDeck = buildQuestionDeck({
+        level: activeLevel,
+        banks: { ...QUESTION_BANKS, 99: customQuestions },
+        recentIds: readRecentQuestionIds(),
+        size: 8,
+        seed: `timeout-${activeLevel}-${Date.now()}`,
+      });
+      const q = randomItem(recoveryDeck);
       setShuffledQuestions([q]);
       setQuestionIndex(0);
       setRecoveryTimer(4);
@@ -1702,17 +2636,14 @@ Can you beat my score? Play ThinkFastBlast!`;
       setGameState("transition");
       setTimeout(() => setGameState("resolving"), 1500);
     }
-  }, [level, triggerFlash, customQuestions]);
+  }, [level, triggerFlash, customQuestions, strikeLimit]);
 
   // -------------------------------------------------------------------------
   // Piece lifecycle
   // -------------------------------------------------------------------------
-  const spawnQuizPiece = useCallback(() => {
-    const activeLevel = stateRef.current.level;
-    const isFirstBlock = stateRef.current.questionIndex === 0;
-
+  const createPieceForLevel = useCallback((activeLevel, isFirstBlock = false) => {
     let pieceBase;
-    
+
     // Safety check: Fruit bombs or any power-up blocks should NEVER spawn first
     if (isFirstBlock) {
       pieceBase = randomItem(TETROMINOES);
@@ -1722,19 +2653,19 @@ Can you beat my score? Play ThinkFastBlast!`;
       const spawnRoll = Math.random();
 
       if (canSpawnBomb && spawnRoll < 0.08) {
-        pieceBase = { 
-          shape: [[1]], 
-          color: "bg-rose-600 border border-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.8)] animate-glow-tnt", 
-          isFruit: true, 
-          emoji: "💣", 
-          isCatalystBomb: true 
+        pieceBase = {
+          shape: [[1]],
+          color: "bg-rose-600 border border-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.8)] animate-glow-tnt",
+          isFruit: true,
+          emoji: "💣",
+          isCatalystBomb: true
         };
       } else if (canSpawnWildcard && spawnRoll >= 0.08 && spawnRoll < 0.16) {
-        pieceBase = { 
-          shape: [[1]], 
-          color: "bg-gradient-to-tr from-yellow-300 via-pink-500 to-indigo-500 border border-white", 
-          isWildcard: true, 
-          emoji: "✨" 
+        pieceBase = {
+          shape: [[1]],
+          color: "bg-gradient-to-tr from-yellow-300 via-pink-500 to-indigo-500 border border-white",
+          isWildcard: true,
+          emoji: "✨"
         };
       } else if (Math.random() < 0.15) {
         pieceBase = randomItem(FRUITS);
@@ -1742,9 +2673,6 @@ Can you beat my score? Play ThinkFastBlast!`;
         pieceBase = randomItem(TETROMINOES);
       }
     }
-
-    const width = pieceBase.shape[0].length;
-    const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
 
     let color = pieceBase.color;
     let emoji = pieceBase.emoji || "";
@@ -1757,11 +2685,23 @@ Can you beat my score? Play ThinkFastBlast!`;
       emoji = "🦠";
     }
 
-    const newPiece = {
+    return {
       ...pieceBase,
       color,
       emoji,
       isSlime,
+    };
+  }, [stats.unlockedItems]);
+
+  const spawnQuizPiece = useCallback(() => {
+    const activeLevel = stateRef.current.level;
+    const isFirstBlock = stateRef.current.questionIndex === 0;
+    const pieceBase = nextPiece || createPieceForLevel(activeLevel, isFirstBlock);
+    const queuedPiece = createPieceForLevel(activeLevel, false);
+    const width = pieceBase.shape[0].length;
+    const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
+    const newPiece = {
+      ...pieceBase,
       x,
       y: 0,
     };
@@ -1772,8 +2712,38 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
 
     setActivePiece(newPiece);
+    setNextPiece(queuedPiece);
+    setHoldUsed(false);
     setQuestionStartTime(Date.now());
-  }, [stats.unlockedItems, totalScore, handleGameEnd]);
+  }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd]);
+
+  const holdCurrentPiece = useCallback(() => {
+    const { activePiece: piece, board: currentBoard, gameState: state, isControllable: canControl } = stateRef.current;
+    if (!piece || state !== "dropping" || !canControl || holdUsed || piece.isStone) return;
+
+    const activeLevel = stateRef.current.level;
+    const storedPiece = {
+      ...piece,
+      x: undefined,
+      y: undefined,
+      isGhost: false,
+    };
+    const replacement = heldPiece || nextPiece || createPieceForLevel(activeLevel, false);
+    const replacementWidth = replacement.shape[0].length;
+    const replacementPiece = {
+      ...replacement,
+      x: Math.floor(BOARD_WIDTH / 2) - Math.floor(replacementWidth / 2),
+      y: 0,
+    };
+
+    if (checkCollision(replacementPiece, currentBoard)) return;
+    setHeldPiece(storedPiece);
+    if (!heldPiece) setNextPiece(createPieceForLevel(activeLevel, false));
+    setActivePiece(replacementPiece);
+    setHoldUsed(true);
+    playSFX("hold");
+    addFloatingText("HOLD SWAP!", replacementPiece.x, 2);
+  }, [holdUsed, heldPiece, nextPiece, createPieceForLevel, addFloatingText]);
 
   const lockPiece = useCallback(() => {
     const { activePiece: piece, board: currentBoard } = stateRef.current;
@@ -1791,6 +2761,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           nextBoard[boardY][boardX] = {
             color: piece.color,
             isFruit: piece.isFruit || false,
+            fruitType: piece.fruitType || "",
             emoji: piece.emoji || "",
             isStone: piece.isStone || false,
             isTNT: piece.isTNT || false,
@@ -1806,7 +2777,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     setBoard(nextBoard);
     setActivePiece(null);
-    setGameState("resolving");
+    setGameState(stateRef.current.gameState === "arena_dropping" ? "arena_resolving" : "resolving");
   }, []);
 
   // -------------------------------------------------------------------------
@@ -1825,7 +2796,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const moveHorizontal = useCallback((dir) => {
     const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
     if (paused) return;
-    if (!piece || !canControl || state !== "dropping") return;
+    if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state)) return;
 
     const movedPiece = { ...piece, x: piece.x + dir };
     if (!checkCollision(movedPiece, currentBoard)) {
@@ -1839,7 +2810,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const rotatePiece = useCallback(() => {
     const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
     if (paused) return;
-    if (!piece || !canControl || state !== "dropping" || piece.isFruit) return;
+    if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state) || piece.isFruit) return;
 
     const rotatedPiece = { ...piece, shape: rotateShapeClockwise(piece.shape) };
     if (!checkCollision(rotatedPiece, currentBoard)) {
@@ -1851,7 +2822,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const hardDrop = useCallback(() => {
     const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
     if (paused) return;
-    if (!piece || !canControl || state !== "dropping") return;
+    if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state)) return;
 
     let y = piece.y;
     while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
@@ -1869,6 +2840,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           nextBoard[boardY][boardX] = {
             color: droppedPiece.color,
             isFruit: droppedPiece.isFruit || false,
+            fruitType: droppedPiece.fruitType || "",
             emoji: droppedPiece.emoji || "",
             isStone: droppedPiece.isStone || false,
             isTNT: droppedPiece.isTNT || false,
@@ -1883,7 +2855,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     });
     setBoard(nextBoard);
     setActivePiece(null);
-    setGameState("resolving");
+    setGameState(state === "arena_dropping" ? "arena_resolving" : "resolving");
   }, []);
 
   const handleBoardTouchStart = (event) => {
@@ -1925,10 +2897,11 @@ Can you beat my score? Play ThinkFastBlast!`;
   useEffect(() => {
     if (gameState !== "dropping" || isPaused) return undefined;
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
-    const speed = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
+    const baseSpeed = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
+    const speed = Math.max(5, Math.round(baseSpeed * runConfig.difficulty.gravityMultiplier));
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
-  }, [gameState, isPaused, level, moveDown]);
+  }, [gameState, isPaused, level, moveDown, runConfig.difficulty.gravityMultiplier]);
 
   // -------------------------------------------------------------------------
   // Board resolver: blasts, lines, combos, gravity, win/loss
@@ -1943,6 +2916,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     let hasLightning = false;
     let didLineClear = false;
     let didColorMatch = false;
+    let fruitCount = 0;
+    let lineClearCount = 0;
+    let colorMatchCount = 0;
+    const fruitEffects = new Set();
 
     const addCellToClear = (y, x) => {
       if (!cellsToClear.some((cell) => cell.y === y && cell.x === x)) {
@@ -2025,17 +3002,22 @@ Can you beat my score? Play ThinkFastBlast!`;
       }
     }
 
-    // 4. Fruit bombs clear themselves and neighbors
+    // 4. Fruits reward deliberate placement with three distinct blast patterns.
     for (let y = 0; y < BOARD_HEIGHT; y += 1) {
       for (let x = 0; x < BOARD_WIDTH; x += 1) {
         if (board[y][x]?.isFruit && !board[y][x]?.isCatalystBomb) {
-          [{ y, x }, { y: y + 1, x }, { y: y - 1, x }, { y, x: x + 1 }, { y, x: x - 1 }]
-            .forEach((cell) => {
-              const insideBoard =
-                cell.y >= 0 && cell.y < BOARD_HEIGHT && cell.x >= 0 && cell.x < BOARD_WIDTH;
-              if (insideBoard && board[cell.y][cell.x] !== null) addCellToClear(cell.y, cell.x);
-            });
-          pointsEarned += POINTS.FRUIT_BOMB;
+          const fruit = board[y][x];
+          fruitCount += 1;
+          fruitEffects.add(fruit.fruitType || "apple");
+          const fruitCells = findFruitEffectCells(
+            board,
+            y,
+            x,
+            fruit.fruitType || "apple",
+            fruit.color
+          );
+          fruitCells.forEach((cell) => addCellToClear(cell.y, cell.x));
+          pointsEarned += POINTS.FRUIT_BOMB + Math.max(0, fruitCells.length - 1) * 8;
         }
       }
     }
@@ -2046,6 +3028,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear(y, x);
       pointsEarned += POINTS.LINE_CLEAR;
       didLineClear = true;
+      lineClearCount += 1;
     }
 
     // 6. Connected components of 5+ matching colors
@@ -2093,14 +3076,31 @@ Can you beat my score? Play ThinkFastBlast!`;
           pointsEarned += POINTS.COLOR_MATCH + (component.length - 5) * 5;
           component.forEach((cell) => addCellToClear(cell.y, cell.x));
           didColorMatch = true;
+          colorMatchCount += 1;
         }
       }
     }
 
     if (cellsToClear.length > 0) {
       const anchor = cellsToClear[0];
-      
+      const nextBlastEffect = hasLightning
+        ? "lightning"
+        : hasTnt
+          ? "tnt"
+          : hasDrill
+            ? "drill"
+            : fruitEffects.has("orange")
+              ? "orange"
+              : fruitEffects.has("banana")
+                ? "banana"
+                : fruitEffects.has("apple")
+                  ? "apple"
+                  : didLineClear
+                    ? "line"
+                    : "match";
+
       queueMicrotask(() => triggerShake());
+      queueMicrotask(() => setBlastEffect(nextBlastEffect));
       queueMicrotask(() => setExplodingCells(cellsToClear));
       queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning ? "blast" : "score"));
       if (hasLightning) {
@@ -2129,6 +3129,18 @@ Can you beat my score? Play ThinkFastBlast!`;
         setBoard(afterClearBoard);
         setExplodingCells([]);
         setTotalScore((prev) => prev + pointsEarned);
+        const nextRunMetrics = {
+          ...runMetrics,
+          lines: runMetrics.lines + lineClearCount,
+          matches: runMetrics.matches + colorMatchCount,
+          fruits: runMetrics.fruits + fruitCount,
+          specials: runMetrics.specials + Number(hasTnt) + Number(hasDrill) + Number(hasLightning),
+        };
+        stateRef.current.runMetrics = nextRunMetrics;
+        setRunMetrics(nextRunMetrics);
+        if (nextRunMetrics.lines + nextRunMetrics.matches >= 4) unlockAchievement("board_buster");
+        if (nextRunMetrics.fruits >= 3) unlockAchievement("fruit_salad");
+        if (nextRunMetrics.specials >= 3) unlockAchievement("power_trip");
         vibrate(hasTnt || hasDrill || hasLightning ? [30, 20, 70] : 22);
 
         // Schedule and trigger floating texts asynchronously
@@ -2136,15 +3148,24 @@ Can you beat my score? Play ThinkFastBlast!`;
           playSFX("explosion");
           addFloatingText("TNT BLAST! 💣", anchor.x, anchor.y - 1);
         } else if (hasDrill) {
-          playSFX("match", 1);
+          playSFX("drill");
           addFloatingText("DRILL BLAST! 🌀", anchor.x, anchor.y - 1);
         } else if (hasLightning) {
           playSFX("match", 2);
           addFloatingText("ZAP! ⚡", anchor.x, anchor.y - 1);
+        } else if (fruitEffects.has("orange")) {
+          playSFX("fruit_orange");
+          addFloatingText("CITRUS CROSS! 🍊", anchor.x, anchor.y - 1);
+        } else if (fruitEffects.has("banana")) {
+          playSFX("fruit_banana");
+          addFloatingText("RICOCHET! 🍌", anchor.x, anchor.y - 1);
+        } else if (fruitEffects.has("apple")) {
+          playSFX("fruit_apple");
+          addFloatingText("COLOR CORE! 🍎", anchor.x, anchor.y - 1);
         } else {
           playSFX("match", 0);
         }
-        
+
         if (pointsEarned > 0) {
           addFloatingText(`+${pointsEarned}`, anchor.x, anchor.y);
         }
@@ -2162,9 +3183,13 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     queueMicrotask(() => {
       const projectedScore = totalScore + pointsEarned;
-      if (misses >= STRIKES_ALLOWED) {
+      if (misses >= strikeLimit) {
         handleGameEnd(false, projectedScore);
-      } else if (projectedScore >= WIN_SCORE_TARGET) {
+      } else if (isRunComplete(runConfig, {
+        ...runMetrics,
+        score: projectedScore,
+        maxStreak,
+      })) {
         handleGameEnd(true, projectedScore);
       } else if (questionIndex >= shuffledQuestions.length - 1) {
         handleGameEnd(false, projectedScore);
@@ -2176,7 +3201,489 @@ Can you beat my score? Play ThinkFastBlast!`;
     });
 
     return undefined;
-  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash, vibrate, triggerElectrify, unlockAchievement]);
+  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash, vibrate, triggerElectrify, unlockAchievement, strikeLimit, runConfig, runMetrics, maxStreak, triggerShake]);
+
+  // -------------------------------------------------------------------------
+  // Arena Board resolver: blasts, lines, combos, gravity, win/loss
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (gameState !== "arena_resolving") return undefined;
+
+    let pointsEarned1 = 0;
+    let pointsEarned2 = 0;
+    const cellsToClear1 = [];
+    const cellsToClear2 = [];
+    let hasTnt1 = false;
+    let hasTnt2 = false;
+    let hasDrill1 = false;
+    let hasDrill2 = false;
+    let hasLightning1 = false;
+    let hasLightning2 = false;
+    let didLineClear1 = false;
+    let didLineClear2 = false;
+
+    const addCellToClear1 = (y, x) => {
+      if (!cellsToClear1.some((cell) => cell.y === y && cell.x === x)) {
+        cellsToClear1.push({ y, x });
+      }
+    };
+
+    const addCellToClear2 = (y, x) => {
+      if (!cellsToClear2.some((cell) => cell.y === y && cell.x === x)) {
+        cellsToClear2.push({ y, x });
+      }
+    };
+
+    // --- BOARD 1 RESOLUTION ---
+    // 1. Process TNT detonators & Catalyst Bombs
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isTNT || board[y][x]?.isCatalystBomb) {
+          hasTnt1 = true;
+          for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+              const cy = y + dy;
+              const cx = x + dx;
+              if (cy >= 0 && cy < BOARD_HEIGHT && cx >= 0 && cx < BOARD_WIDTH) {
+                if (board[cy][cx] !== null) addCellToClear1(cy, cx);
+              }
+            }
+          }
+          pointsEarned1 += board[y][x]?.isCatalystBomb ? 100 : 80;
+        }
+      }
+    }
+
+    // 2. Process Drills
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isDrill) {
+          hasDrill1 = true;
+          for (let dy = 0; dy <= 3; dy += 1) {
+            const cy = y + dy;
+            if (cy >= 0 && cy < BOARD_HEIGHT) {
+              if (board[cy][x] !== null) addCellToClear1(cy, x);
+            }
+          }
+          pointsEarned1 += 60;
+        }
+      }
+    }
+
+    // 3. Process Lightning
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isLightning) {
+          hasLightning1 = true;
+          addCellToClear1(y, x);
+          const colorCounts = {};
+          for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+            for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+              const cell = board[by][bx];
+              if (cell && !cell.isStone && !cell.isFruit && cell.color) {
+                colorCounts[cell.color] = (colorCounts[cell.color] || 0) + 1;
+              }
+            }
+          }
+          let targetColor = null;
+          let maxCount = 0;
+          Object.entries(colorCounts).forEach(([color, count]) => {
+            if (count > maxCount) {
+              maxCount = count;
+              targetColor = color;
+            }
+          });
+          if (targetColor) {
+            for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+              for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+                if (board[by][bx]?.color === targetColor) {
+                  addCellToClear1(by, bx);
+                }
+              }
+            }
+            pointsEarned1 += maxCount * 15;
+          }
+        }
+      }
+    }
+
+    // 4. Fruit powers
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isFruit && !board[y][x]?.isCatalystBomb) {
+          const fruit = board[y][x];
+          const fruitCells = findFruitEffectCells(
+            board,
+            y,
+            x,
+            fruit.fruitType || "apple",
+            fruit.color
+          );
+          fruitCells.forEach((cell) => addCellToClear1(cell.y, cell.x));
+          pointsEarned1 += POINTS.FRUIT_BOMB + Math.max(0, fruitCells.length - 1) * 8;
+        }
+      }
+    }
+
+    // 5. Standard line clear
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      if (!board[y].every((cell) => cell !== null)) continue;
+      for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear1(y, x);
+      pointsEarned1 += POINTS.LINE_CLEAR;
+      didLineClear1 = true;
+    }
+
+    // 6. Connected components of 5+ matching colors
+    const visited1 = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(false));
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        const startCell = board[y][x];
+        if (!startCell || startCell.isFruit || startCell.isStone || startCell.isWildcard || visited1[y][x]) continue;
+
+        const color = startCell.color;
+        const component = [];
+        const stack = [{ y, x }];
+
+        while (stack.length > 0) {
+          const current = stack.pop();
+          const cy = current.y;
+          const cx = current.x;
+          const cell = board[cy]?.[cx];
+          if (
+            cy < 0 ||
+            cy >= BOARD_HEIGHT ||
+            cx < 0 ||
+            cx >= BOARD_WIDTH ||
+            visited1[cy][cx] ||
+            cell === null ||
+            cell.isFruit ||
+            cell.isStone ||
+            cell.isTNT ||
+            cell.isDrill ||
+            cell.isLightning ||
+            cell.isCatalystBomb
+          ) {
+            continue;
+          }
+
+          const isMatch = cell.isWildcard || cell.color === color;
+          if (!isMatch) continue;
+
+          visited1[cy][cx] = true;
+          component.push({ y: cy, x: cx });
+          stack.push({ y: cy + 1, x: cx }, { y: cy - 1, x: cx }, { y: cy, x: cx + 1 }, { y: cy, x: cx - 1 });
+        }
+
+        if (component.length >= 5) {
+          pointsEarned1 += POINTS.COLOR_MATCH + (component.length - 5) * 5;
+          component.forEach((cell) => addCellToClear1(cell.y, cell.x));
+        }
+      }
+    }
+
+
+    // --- BOARD 2 RESOLUTION ---
+    // 1. Process TNT detonators & Catalyst Bombs
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board2[y][x]?.isTNT || board2[y][x]?.isCatalystBomb) {
+          hasTnt2 = true;
+          for (let dy = -1; dy <= 1; dy += 1) {
+            for (let dx = -1; dx <= 1; dx += 1) {
+              const cy = y + dy;
+              const cx = x + dx;
+              if (cy >= 0 && cy < BOARD_HEIGHT && cx >= 0 && cx < BOARD_WIDTH) {
+                if (board2[cy][cx] !== null) addCellToClear2(cy, cx);
+              }
+            }
+          }
+          pointsEarned2 += board2[y][x]?.isCatalystBomb ? 100 : 80;
+        }
+      }
+    }
+
+    // 2. Process Drills
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board2[y][x]?.isDrill) {
+          hasDrill2 = true;
+          for (let dy = 0; dy <= 3; dy += 1) {
+            const cy = y + dy;
+            if (cy >= 0 && cy < BOARD_HEIGHT) {
+              if (board2[cy][x] !== null) addCellToClear2(cy, x);
+            }
+          }
+          pointsEarned2 += 60;
+        }
+      }
+    }
+
+    // 3. Process Lightning
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board2[y][x]?.isLightning) {
+          hasLightning2 = true;
+          addCellToClear2(y, x);
+          const colorCounts = {};
+          for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+            for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+              const cell = board2[by][bx];
+              if (cell && !cell.isStone && !cell.isFruit && cell.color) {
+                colorCounts[cell.color] = (colorCounts[cell.color] || 0) + 1;
+              }
+            }
+          }
+          let targetColor = null;
+          let maxCount = 0;
+          Object.entries(colorCounts).forEach(([color, count]) => {
+            if (count > maxCount) {
+              maxCount = count;
+              targetColor = color;
+            }
+          });
+          if (targetColor) {
+            for (let by = 0; by < BOARD_HEIGHT; by += 1) {
+              for (let bx = 0; bx < BOARD_WIDTH; bx += 1) {
+                if (board2[by][bx]?.color === targetColor) {
+                  addCellToClear2(by, bx);
+                }
+              }
+            }
+            pointsEarned2 += maxCount * 15;
+          }
+        }
+      }
+    }
+
+    // 4. Fruit powers
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board2[y][x]?.isFruit && !board2[y][x]?.isCatalystBomb) {
+          const fruit = board2[y][x];
+          const fruitCells = findFruitEffectCells(
+            board2,
+            y,
+            x,
+            fruit.fruitType || "apple",
+            fruit.color
+          );
+          fruitCells.forEach((cell) => addCellToClear2(cell.y, cell.x));
+          pointsEarned2 += POINTS.FRUIT_BOMB + Math.max(0, fruitCells.length - 1) * 8;
+        }
+      }
+    }
+
+    // 5. Standard line clear
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      if (!board2[y].every((cell) => cell !== null)) continue;
+      for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear2(y, x);
+      pointsEarned2 += POINTS.LINE_CLEAR;
+      didLineClear2 = true;
+    }
+
+    // 6. Connected components of 5+ matching colors
+    const visited2 = Array.from({ length: BOARD_HEIGHT }, () => Array(BOARD_WIDTH).fill(false));
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        const startCell = board2[y][x];
+        if (!startCell || startCell.isFruit || startCell.isStone || startCell.isWildcard || visited2[y][x]) continue;
+
+        const color = startCell.color;
+        const component = [];
+        const stack = [{ y, x }];
+
+        while (stack.length > 0) {
+          const current = stack.pop();
+          const cy = current.y;
+          const cx = current.x;
+          const cell = board2[cy]?.[cx];
+          if (
+            cy < 0 ||
+            cy >= BOARD_HEIGHT ||
+            cx < 0 ||
+            cx >= BOARD_WIDTH ||
+            visited2[cy][cx] ||
+            cell === null ||
+            cell.isFruit ||
+            cell.isStone ||
+            cell.isTNT ||
+            cell.isDrill ||
+            cell.isLightning ||
+            cell.isCatalystBomb
+          ) {
+            continue;
+          }
+
+          const isMatch = cell.isWildcard || cell.color === color;
+          if (!isMatch) continue;
+
+          visited2[cy][cx] = true;
+          component.push({ y: cy, x: cx });
+          stack.push({ y: cy + 1, x: cx }, { y: cy - 1, x: cx }, { y: cy, x: cx + 1 }, { y: cy, x: cx - 1 });
+        }
+
+        if (component.length >= 5) {
+          pointsEarned2 += POINTS.COLOR_MATCH + (component.length - 5) * 5;
+          component.forEach((cell) => addCellToClear2(cell.y, cell.x));
+        }
+      }
+    }
+
+    const hasClears1 = cellsToClear1.length > 0;
+    const hasClears2 = cellsToClear2.length > 0;
+
+    if (hasClears1 || hasClears2) {
+      if (hasClears1) {
+        queueMicrotask(() => setExplodingCells(cellsToClear1));
+        queueMicrotask(() => triggerShake());
+        queueMicrotask(() => triggerFlash(hasTnt1 || hasDrill1 || hasLightning1 ? "blast" : "score"));
+        if (hasLightning1) {
+          queueMicrotask(() => triggerElectrify());
+          playSFX("thunder");
+        }
+      }
+      if (hasClears2) {
+        queueMicrotask(() => setExplodingCells2(cellsToClear2));
+        queueMicrotask(() => triggerShake2());
+      }
+
+      const timer = setTimeout(() => {
+        // Resolve Board 1 falling gravity
+        if (hasClears1) {
+          const afterClearBoard = board.map((row) => [...row]);
+          cellsToClear1.forEach((cell) => {
+            afterClearBoard[cell.y][cell.x] = null;
+          });
+
+          for (let x = 0; x < BOARD_WIDTH; x += 1) {
+            let writeY = BOARD_HEIGHT - 1;
+            for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
+              if (afterClearBoard[y][x] === null) continue;
+              if (writeY !== y) {
+                afterClearBoard[writeY][x] = afterClearBoard[y][x];
+                afterClearBoard[y][x] = null;
+              }
+              writeY -= 1;
+            }
+          }
+          setBoard(afterClearBoard);
+          setExplodingCells([]);
+          setTotalScore((prev) => prev + pointsEarned1);
+
+          const anchor = cellsToClear1[0];
+          if (hasTnt1) {
+            playSFX("explosion");
+            addFloatingText("TNT BLAST! 💣", anchor.x, anchor.y - 1);
+          } else if (hasDrill1) {
+            playSFX("match", 1);
+            addFloatingText("DRILL BLAST! 🌀", anchor.x, anchor.y - 1);
+          } else if (hasLightning1) {
+            playSFX("match", 2);
+            addFloatingText("ZAP! ⚡", anchor.x, anchor.y - 1);
+          } else {
+            playSFX("match", 0);
+          }
+          if (pointsEarned1 > 0) {
+            addFloatingText(`+${pointsEarned1}`, anchor.x, anchor.y);
+          }
+
+          if (didLineClear1) {
+            pushGarbageRows(2, 1);
+          }
+        }
+
+        // Resolve Board 2 falling gravity
+        if (hasClears2) {
+          const afterClearBoard = board2.map((row) => [...row]);
+          cellsToClear2.forEach((cell) => {
+            afterClearBoard[cell.y][cell.x] = null;
+          });
+
+          for (let x = 0; x < BOARD_WIDTH; x += 1) {
+            let writeY = BOARD_HEIGHT - 1;
+            for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
+              if (afterClearBoard[y][x] === null) continue;
+              if (writeY !== y) {
+                afterClearBoard[writeY][x] = afterClearBoard[y][x];
+                afterClearBoard[y][x] = null;
+              }
+              writeY -= 1;
+            }
+          }
+          setBoard2(afterClearBoard);
+          setExplodingCells2([]);
+          setTotalScore2((prev) => prev + pointsEarned2);
+
+          const anchor = cellsToClear2[0];
+          if (hasTnt2) {
+            playSFX("explosion");
+            addFloatingText2("TNT BLAST! 💣", anchor.x, anchor.y - 1);
+          } else if (hasDrill2) {
+            playSFX("match", 1);
+            addFloatingText2("DRILL BLAST! 🌀", anchor.x, anchor.y - 1);
+          } else if (hasLightning2) {
+            playSFX("match", 2);
+            addFloatingText2("ZAP! ⚡", anchor.x, anchor.y - 1);
+          } else {
+            playSFX("match", 0);
+          }
+          if (pointsEarned2 > 0) {
+            addFloatingText2(`+${pointsEarned2}`, anchor.x, anchor.y);
+          }
+
+          if (didLineClear2) {
+            pushGarbageRows(1, 1);
+          }
+        }
+      }, 400);
+
+      return () => clearTimeout(timer);
+    }
+
+    queueMicrotask(() => {
+      const score1 = totalScore;
+      const score2 = totalScore2;
+
+      if (score1 >= 500 || score2 >= 500) {
+        if (score1 > score2) {
+          handleArenaGameEnd(1);
+        } else if (score2 > score1) {
+          handleArenaGameEnd(2);
+        } else {
+          handleArenaGameEnd(1);
+        }
+      } else if (questionIndex >= shuffledQuestions.length - 1) {
+        if (score1 >= score2) {
+          handleArenaGameEnd(1);
+        } else {
+          handleArenaGameEnd(2);
+        }
+      } else {
+        setQuestionIndex((prev) => prev + 1);
+        setGameState("arena_quiz");
+        spawnArenaPieces();
+      }
+    });
+
+    return undefined;
+  }, [
+    gameState,
+    board,
+    board2,
+    questionIndex,
+    totalScore,
+    totalScore2,
+    shuffledQuestions.length,
+    spawnArenaPieces,
+    handleArenaGameEnd,
+    addFloatingText,
+    addFloatingText2,
+    triggerFlash,
+    triggerElectrify,
+    pushGarbageRows,
+    triggerShake,
+    triggerShake2,
+  ]);
 
   // Evolving Background Music Controller
   useEffect(() => {
@@ -2185,28 +3692,31 @@ Can you beat my score? Play ThinkFastBlast!`;
       return undefined;
     }
 
-    if (["dropping", "quiz", "transition", "resolving", "intro", "strike_recovery"].includes(gameState)) {
+    if (["dropping", "quiz", "transition", "resolving", "intro", "strike_recovery", "arena_quiz", "arena_dropping", "arena_resolving", "arena_intro"].includes(gameState)) {
       const totalCells = BOARD_WIDTH * BOARD_HEIGHT;
       const occupiedCount = board.flat().filter((cell) => cell !== null).length;
       const occupancy = occupiedCount / totalCells;
+      const strikePressure = Math.min(1, misses / Math.max(1, strikeLimit));
+      const streakEnergy = Math.min(1, correctStreak / 10);
+      const intensity = Math.min(1, Math.max(occupancy, strikePressure * 0.82, streakEnergy * 0.45));
 
       const baseBpm = 110 + level * 2;
-      const bpm = Math.min(185, Math.floor(baseBpm + occupancy * 50));
+      const bpm = Math.min(190, Math.floor(baseBpm + intensity * 55));
 
-      const isMajor = (gameState === "transition" && isControllable) || gameState === "intro";
+      const isMajor = (gameState === "transition" && isControllable) || gameState === "intro" || gameState === "arena_intro";
       const scaleType = isMajor ? "major" : "minor";
 
-      startArpeggiator(bpm, scaleType, occupancy);
+      startArpeggiator(bpm, scaleType, intensity);
     } else {
       stopArpeggiator();
     }
 
     return () => {
-      if (["start", "level_win", "gameover"].includes(gameState)) {
+      if (["start", "level_win", "gameover", "arena_win"].includes(gameState)) {
         stopArpeggiator();
       }
     };
-  }, [board, level, gameState, isControllable, audioOn, isPaused]);
+  }, [board, level, gameState, isControllable, audioOn, isPaused, misses, strikeLimit, correctStreak]);
 
   // Menu Music controller
   useEffect(() => {
@@ -2221,31 +3731,209 @@ Can you beat my score? Play ThinkFastBlast!`;
   }, [gameState, audioOn, isPaused]);
 
   // Keyboard events
+  // Arena Gravity Tick
+  useEffect(() => {
+    if (gameState !== "arena_dropping" || isPaused) return undefined;
+
+    const config = LEVEL_CONFIG[arenaLevel] || LEVEL_CONFIG[1];
+    const speed1 = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
+    const speed2 = stateRef.current.isControllable2 ? config.baseSpeed : config.fastSpeed;
+
+    const timer1 = setInterval(() => {
+      if (stateRef.current.gameState === "arena_dropping" && stateRef.current.activePiece) {
+        moveDown();
+      }
+    }, speed1);
+
+    const timer2 = setInterval(() => {
+      if (stateRef.current.gameState === "arena_dropping" && stateRef.current.activePiece2) {
+        moveDown2();
+      }
+    }, speed2);
+
+    return () => {
+      clearInterval(timer1);
+      clearInterval(timer2);
+    };
+  }, [gameState, isPaused, arenaLevel, moveDown, moveDown2]);
+
+  // Arena Quiz Slow Fall
+  useEffect(() => {
+    if (gameState !== "arena_quiz" || isPaused) return undefined;
+
+    const config = LEVEL_CONFIG[arenaLevel] || LEVEL_CONFIG[1];
+    const quizSpeed = Math.max(1400, config.baseSpeed * 3.5);
+
+    const timer = setInterval(() => {
+      const { activePiece: piece1, activePiece2: piece2, board, board2 } = stateRef.current;
+
+      let collided1 = false;
+      let collided2 = false;
+
+      if (piece1) {
+        const moved1 = { ...piece1, y: piece1.y + 1 };
+        if (!checkCollision(moved1, board)) {
+          setActivePiece(moved1);
+        } else {
+          collided1 = true;
+        }
+      }
+      if (piece2) {
+        const moved2 = { ...piece2, y: piece2.y + 1 };
+        if (!checkCollision(moved2, board2)) {
+          setActivePiece2(moved2);
+        } else {
+          collided2 = true;
+        }
+      }
+
+      if (collided1 || collided2) {
+        clearInterval(timer);
+        handleArenaTimeOut();
+      }
+    }, quizSpeed);
+
+    return () => clearInterval(timer);
+  }, [gameState, isPaused, arenaLevel, handleArenaTimeOut]);
+
+  // AI Bot Answers Loop
+  useEffect(() => {
+    if (gameState !== "arena_quiz" || arenaMode !== "vs_ai" || isPaused || p2Answered !== null) return undefined;
+
+    const question = shuffledQuestions[questionIndex];
+    if (!question) return undefined;
+
+    let delayRange = [2000, 4500];
+    let accuracy = 0.8;
+    if (aiDifficulty === "easy") {
+      delayRange = [3500, 5500];
+      accuracy = 0.62;
+    } else if (aiDifficulty === "hard") {
+      delayRange = [800, 1800];
+      accuracy = 0.94;
+    }
+
+    const delay = Math.random() * (delayRange[1] - delayRange[0]) + delayRange[0];
+    const timer = setTimeout(() => {
+      if (stateRef.current.isPaused || stateRef.current.gameState !== "arena_quiz") return;
+
+      const isCorrect = Math.random() < accuracy;
+      const answerIndex = isCorrect ? question.answer : (question.answer + 1) % 4;
+      handleArenaAnswer(2, answerIndex);
+    }, delay);
+
+    return () => clearTimeout(timer);
+  }, [gameState, arenaMode, questionIndex, aiDifficulty, shuffledQuestions, isPaused, p2Answered, handleArenaAnswer]);
+
+  // AI Bot Steering Placement Loop
+  useEffect(() => {
+    if (gameState !== "arena_dropping" || arenaMode !== "vs_ai" || isPaused || !isControllable2 || !activePiece2) return undefined;
+
+    const pieceWidth = activePiece2.shape[0].length;
+    const targetX = Math.floor(Math.random() * (BOARD_WIDTH - pieceWidth + 1));
+
+    let timer;
+    const aiMoveStep = () => {
+      const { activePiece2: piece, board2: currentBoard } = stateRef.current;
+      if (!piece) return;
+
+      if (piece.x < targetX) {
+        const moved = { ...piece, x: piece.x + 1 };
+        if (!checkCollision(moved, currentBoard)) {
+          setActivePiece2(moved);
+        }
+      } else if (piece.x > targetX) {
+        const moved = { ...piece, x: piece.x - 1 };
+        if (!checkCollision(moved, currentBoard)) {
+          setActivePiece2(moved);
+        }
+      } else {
+        clearInterval(timer);
+        setTimeout(() => {
+          if (stateRef.current.gameState === "arena_dropping" && stateRef.current.isControllable2) {
+            hardDrop2();
+          }
+        }, 250);
+        return;
+      }
+    };
+
+    timer = setInterval(aiMoveStep, 250);
+    return () => clearInterval(timer);
+  }, [gameState, arenaMode, isPaused, isControllable2, activePiece2, hardDrop2]);
+
+  // Keyboard events
   useEffect(() => {
     const handleKeyDown = (event) => {
-      if ((event.key === "p" || event.key === "P" || event.key === "Escape") && PLAYABLE_STATES.has(stateRef.current.gameState)) {
+      const currentGameState = stateRef.current.gameState;
+      const isGamePaused = stateRef.current.isPaused;
+
+      if ((event.key === "p" || event.key === "P" || event.key === "Escape") && PLAYABLE_STATES.has(currentGameState)) {
         event.preventDefault();
         playSFX("button");
         setIsPaused((paused) => !paused);
         return;
       }
 
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(event.key) && stateRef.current.gameState === "dropping") {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "w", "a", "s", "d", "W", "A", "S", "D", "c", "C", "Shift"].includes(event.key) &&
+          ["dropping", "arena_dropping"].includes(currentGameState)) {
         event.preventDefault();
       }
 
-      if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+      if (isGamePaused) return;
 
-      if (event.key === "ArrowLeft") moveHorizontal(-1);
-      if (event.key === "ArrowRight") moveHorizontal(1);
-      if (event.key === "ArrowDown") moveDown();
-      if (event.key === "ArrowUp") rotatePiece();
-      if (event.key === " ") hardDrop();
+      if (currentGameState === "arena_quiz") {
+        if (["1", "2", "3", "4"].includes(event.key)) {
+          event.preventDefault();
+          const optionIndex = parseInt(event.key) - 1;
+          handleArenaAnswer(1, optionIndex);
+        }
+        if (stateRef.current.arenaMode === "vs_player") {
+          if (["7", "8", "9", "0"].includes(event.key)) {
+            event.preventDefault();
+            const optionIndex = event.key === "0" ? 3 : parseInt(event.key) - 7;
+            handleArenaAnswer(2, optionIndex);
+          } else if (["u", "i", "o", "p", "U", "I", "O", "P"].includes(event.key)) {
+            event.preventDefault();
+            const keyMap = { u: 0, i: 1, o: 2, p: 3, U: 0, I: 1, O: 2, P: 3 };
+            handleArenaAnswer(2, keyMap[event.key]);
+          }
+        }
+        return;
+      }
+
+      if (currentGameState === "arena_dropping") {
+        if (stateRef.current.isControllable) {
+          if (event.key === "a" || event.key === "A") moveHorizontal(-1);
+          if (event.key === "d" || event.key === "D") moveHorizontal(1);
+          if (event.key === "s" || event.key === "S") moveDown();
+          if (event.key === "w" || event.key === "W") rotatePiece();
+          if (event.key === " ") hardDrop();
+        }
+
+        if (stateRef.current.arenaMode === "vs_player" && stateRef.current.isControllable2) {
+          if (event.key === "ArrowLeft") moveHorizontal2(-1);
+          if (event.key === "ArrowRight") moveHorizontal2(1);
+          if (event.key === "ArrowDown") moveDown2();
+          if (event.key === "ArrowUp") rotatePiece2();
+          if (event.key === "Enter") hardDrop2();
+        }
+        return;
+      }
+
+      if (currentGameState === "dropping" && stateRef.current.isControllable) {
+        if (event.key === "ArrowLeft") moveHorizontal(-1);
+        if (event.key === "ArrowRight") moveHorizontal(1);
+        if (event.key === "ArrowDown") moveDown();
+        if (event.key === "ArrowUp") rotatePiece();
+        if (event.key === " ") hardDrop();
+        if (event.key === "c" || event.key === "C" || event.key === "Shift") holdCurrentPiece();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hardDrop, moveDown, moveHorizontal, rotatePiece]);
+  }, [hardDrop, moveDown, moveHorizontal, rotatePiece, holdCurrentPiece, moveHorizontal2, moveDown2, rotatePiece2, hardDrop2, handleArenaAnswer]);
 
   // -------------------------------------------------------------------------
   // Level Wind Turbulence (Level 7 & 8)
@@ -2290,7 +3978,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (gameState !== "quiz" || isPaused || !activePiece) return undefined;
 
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
-    const quizSpeed = Math.max(900, config.baseSpeed * 3);
+    const quizSpeed = Math.max(
+      620,
+      Math.round(config.baseSpeed * 3 * runConfig.difficulty.quizMultiplier)
+    );
 
     const timer = setInterval(() => {
       const { activePiece: piece, board: currentBoard } = stateRef.current;
@@ -2306,7 +3997,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     }, quizSpeed);
 
     return () => clearInterval(timer);
-  }, [gameState, isPaused, activePiece, level, handleTimeOut]);
+  }, [gameState, isPaused, activePiece, level, handleTimeOut, runConfig.difficulty.quizMultiplier]);
 
   // -------------------------------------------------------------------------
   // Strike Recovery Mode countdown timer
@@ -2332,7 +4023,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Level Intro / Loading Screen Countdown Hook
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (gameState !== "intro") return undefined;
+    if (gameState !== "intro" && gameState !== "arena_intro") return undefined;
 
     if (introCountdown > 0) {
       const timer = setTimeout(() => {
@@ -2343,14 +4034,20 @@ Can you beat my score? Play ThinkFastBlast!`;
     } else {
       playSFX("level_start");
       const timer = setTimeout(() => {
-        setGameState("quiz");
-        stateRef.current.level = level;
-        stateRef.current.questionIndex = 0;
-        spawnQuizPiece();
+        if (gameState === "arena_intro") {
+          setGameState("arena_quiz");
+          stateRef.current.questionIndex = 0;
+          spawnArenaPieces();
+        } else {
+          setGameState("quiz");
+          stateRef.current.level = level;
+          stateRef.current.questionIndex = 0;
+          spawnQuizPiece();
+        }
       }, 800);
       return () => clearTimeout(timer);
     }
-  }, [gameState, introCountdown, level, spawnQuizPiece]);
+  }, [gameState, introCountdown, level, spawnQuizPiece, spawnArenaPieces]);
 
   // -------------------------------------------------------------------------
   // Quiz answers handler
@@ -2361,13 +4058,14 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (!question) return;
     const correct = selectedIndex === question.answer;
     const { activePiece: piece, misses: currentMisses } = stateRef.current;
+    rememberQuestionId(question.id);
 
     // Handle Strike Recovery Phase
     if (stateRef.current.gameState === "strike_recovery") {
       if (correct) {
         playSFX("correct");
         triggerFlash("success");
-        setMisses(2);
+        setMisses(Math.max(0, strikeLimit - 1));
         const nextBoard = board.map((row, y) => {
           if (y < 3) return Array(BOARD_WIDTH).fill(null);
           return [...row];
@@ -2375,9 +4073,15 @@ Can you beat my score? Play ThinkFastBlast!`;
         setBoard(nextBoard);
         triggerShake();
         addFloatingText("RECOVERY SUCCESS! 💥", 4, 4);
-        setFeedback("Recovery Success! Strikes set to 2.");
+        setFeedback("Recovery Success! One strike remains.");
 
-        setShuffledQuestions(shuffleArray(level === 99 ? customQuestions : (QUESTION_BANKS[level] || QUESTION_BANKS[1])));
+        setShuffledQuestions(buildQuestionDeck({
+          level,
+          banks: { ...QUESTION_BANKS, 99: customQuestions },
+          recentIds: readRecentQuestionIds(),
+          size: 60,
+          seed: `recovery-${level}-${Date.now()}`,
+        }));
         setQuestionIndex(0);
         setGameState("transition");
         setTimeout(() => {
@@ -2391,6 +4095,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
 
     if (!piece) return;
+    setRunMetrics((metrics) => ({
+      ...metrics,
+      questions: metrics.questions + 1,
+    }));
 
     if (correct) {
       const nextStreak = correctStreak + 1;
@@ -2408,7 +4116,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       // Perfect Quick Answer Bonus check
       const elapsed = (Date.now() - questionStartTime) / 1000;
       let bonusText = "";
-      if (elapsed <= 2.2) {
+      if (elapsed <= runConfig.difficulty.quickWindowSeconds) {
         setTotalScore((score) => score + 15);
         bonusText = " PERFECT! Quick Bonus +15 Pts!";
         addFloatingText("PERFECT! ⚡", piece?.x || 5, piece?.y || 4);
@@ -2486,10 +4194,16 @@ Can you beat my score? Play ThinkFastBlast!`;
       setBoard(nextBoard);
       setActivePiece(null);
 
-      if (nextMisses >= STRIKES_ALLOWED) {
+      if (nextMisses >= strikeLimit) {
         const activeLevel = level;
-        const levelQuestions = activeLevel === 99 ? customQuestions : (QUESTION_BANKS[activeLevel] || QUESTION_BANKS[1]);
-        const q = randomItem(levelQuestions);
+        const recoveryDeck = buildQuestionDeck({
+          level: activeLevel,
+          banks: { ...QUESTION_BANKS, 99: customQuestions },
+          recentIds: readRecentQuestionIds(),
+          size: 8,
+          seed: `strike-${activeLevel}-${Date.now()}`,
+        });
+        const q = randomItem(recoveryDeck);
         setShuffledQuestions([q]);
         setQuestionIndex(0);
         setRecoveryTimer(4);
@@ -2506,7 +4220,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
@@ -2514,13 +4228,28 @@ Can you beat my score? Play ThinkFastBlast!`;
   const startLevel = useCallback((nextLevel) => {
     playSFX("button");
     setLevel(nextLevel);
-    if (nextLevel === 99) {
-      setShuffledQuestions(shuffleArray(customQuestions));
+    if (nextLevel === 98) {
+      setRunMode("daily");
+      setShuffledQuestions(buildDailyQuestionDeck({
+        banks: QUESTION_BANKS,
+        date: new Date(),
+        size: 30,
+      }));
     } else {
-      setShuffledQuestions(shuffleArray(QUESTION_BANKS[nextLevel] || QUESTION_BANKS[1]));
+      setRunMode(nextLevel === 99 ? "custom" : "campaign");
+      setShuffledQuestions(buildQuestionDeck({
+        level: nextLevel,
+        banks: { ...QUESTION_BANKS, 99: customQuestions },
+        recentIds: readRecentQuestionIds(),
+        size: nextLevel >= 11 ? 70 : 60,
+        seed: `${nextLevel}-${Date.now()}-${Math.random()}`,
+      }));
     }
     setBoard(createEmptyBoard());
     setActivePiece(null);
+    setNextPiece(null);
+    setHeldPiece(null);
+    setHoldUsed(false);
     setQuestionIndex(0);
     setQuestionsAnsweredThisLevel(0);
     setMisses(0);
@@ -2529,6 +4258,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setIsControllable(true);
     setFeedback("");
     setExplodingCells([]);
+    setBlastEffect("match");
     setFlashColor(null);
     setShareFeedback("");
 
@@ -2537,6 +4267,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     setIsPaused(false);
     setWindForce(0);
     setQuestionsSinceLastRise(0);
+    setRunMetrics({
+      lines: 0,
+      matches: 0,
+      fruits: 0,
+      specials: 0,
+      questions: 0,
+    });
 
     const fact = TRIVIA_FACTS[Math.floor(Math.random() * TRIVIA_FACTS.length)];
     setRandomFact(fact);
@@ -2548,7 +4285,9 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Compose display board by overlaying the active piece
   const animatedScore = useAnimatedNumber(totalScore);
   const winStars = misses === 0 ? 3 : misses === 1 ? 2 : 1;
-  const nearWin = totalScore >= WIN_SCORE_TARGET - 60 && totalScore < WIN_SCORE_TARGET && PLAYABLE_STATES.has(gameState);
+  const isArena = ["arena_quiz", "arena_dropping", "arena_resolving"].includes(gameState);
+  const nearWin = totalScore >= runTarget - 60 && totalScore < runTarget && PLAYABLE_STATES.has(gameState);
+  const rewardLevelMultiplier = runMode === "campaign" ? level : 5;
 
   const displayBoard = board.map((row) => [...row]);
 
@@ -2589,6 +4328,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           displayBoard[boardY][boardX] = {
             color: activePiece.color,
             isFruit: activePiece.isFruit,
+            fruitType: activePiece.fruitType,
             emoji: activePiece.emoji,
             isStone: activePiece.isStone,
             isTNT: activePiece.isTNT,
@@ -2603,17 +4343,63 @@ Can you beat my score? Play ThinkFastBlast!`;
   }
 
   const currentQuestion = shuffledQuestions[questionIndex];
-  const currentLevel = level === 99 ? { id: 99, name: "Custom Pack", theme: "Your custom trivia" } : (LEVELS.find((item) => item.id === level) || LEVELS[0]);
+  const currentLevel = level === 98
+    ? { id: 98, name: "Daily Blast", theme: `Seeded challenge ${dailyChallengeKey}` }
+    : level === 99
+      ? { id: 99, name: "Custom Pack", theme: "Your custom trivia" }
+      : (LEVELS.find((item) => item.id === level) || LEVELS[0]);
   const isMenu = gameState === "start";
-  
+
   const panelClass = isMenu
     ? "w-full max-w-5xl h-full flex flex-col items-center justify-center text-center z-10"
     : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-start md:justify-center text-center md:text-left relative overflow-y-auto md:overflow-hidden z-10";
 
   return (
-    <div className="h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation">
+    <div className={`h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation ${reduceMotion ? "reduced-motion" : ""} ${highContrast ? "high-contrast" : ""}`}>
       <Confetti active={gameState === "level_win"} />
       <ScreenFlash tone={flashColor} />
+
+      {showOnboarding && gameState === "start" && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/88 p-4 backdrop-blur-md">
+          <section className="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+            <div className="onboarding-progress" aria-label={`Onboarding step ${onboardingStep + 1} of ${ONBOARDING_STEPS.length}`}>
+              {ONBOARDING_STEPS.map((step, index) => (
+                <span
+                  key={step.title}
+                  className={index <= onboardingStep ? "onboarding-dot onboarding-dot-active" : "onboarding-dot"}
+                />
+              ))}
+            </div>
+            <div className="onboarding-icon" aria-hidden="true">
+              {ONBOARDING_STEPS[onboardingStep].icon}
+            </div>
+            <p className="onboarding-eyebrow">{ONBOARDING_STEPS[onboardingStep].eyebrow}</p>
+            <h2 id="onboarding-title" className="onboarding-title">
+              {ONBOARDING_STEPS[onboardingStep].title}
+            </h2>
+            <p className="onboarding-copy">{ONBOARDING_STEPS[onboardingStep].body}</p>
+            <div className="onboarding-actions">
+              <button type="button" onClick={completeOnboarding} className="menu-ghost-button">
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (onboardingStep >= ONBOARDING_STEPS.length - 1) {
+                    completeOnboarding();
+                  } else {
+                    playSFX("button");
+                    setOnboardingStep((step) => step + 1);
+                  }
+                }}
+                className="menu-primary-button"
+              >
+                {onboardingStep >= ONBOARDING_STEPS.length - 1 ? "Start Playing" : "Next"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Achievement / record toasts */}
       {achievementToasts.length > 0 && (
@@ -2632,7 +4418,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           ))}
         </div>
       )}
-      
+
       {/* Global Session Controls */}
       <div className="fixed top-2.5 right-2.5 z-40 flex items-center gap-2">
         {canPause && (
@@ -2692,6 +4478,26 @@ Can you beat my score? Play ThinkFastBlast!`;
               ))}
             </div>
 
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                ["Reduce Motion", reduceMotion, setReduceMotion],
+                ["Screen Shake", screenShakeEnabled, setScreenShakeEnabled],
+                ["Haptics", hapticsEnabled, setHapticsEnabled],
+                ["High Contrast", highContrast, setHighContrast],
+              ].map(([label, enabled, setter]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setter(!enabled)}
+                  className={enabled ? "settings-toggle settings-toggle-active" : "settings-toggle"}
+                  aria-pressed={enabled}
+                >
+                  <span>{label}</span>
+                  <strong>{enabled ? "On" : "Off"}</strong>
+                </button>
+              ))}
+            </div>
+
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -2721,12 +4527,437 @@ Can you beat my score? Play ThinkFastBlast!`;
       )}
 
       <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-7xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
-        
+
+        {/* Arena VS Gameplay view */}
+        {isArena && (
+          <div className="arena-shell w-full max-w-6xl flex flex-col items-center justify-start min-h-0 z-10 flex-1">
+            <header className="arena-header w-full flex items-center justify-between bg-slate-900/90 backdrop-blur-md rounded-xl p-3 border border-slate-700/50 shadow-xl mb-3 shrink-0">
+              <div className="text-left">
+                <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Blast Arena VS</span>
+                <h1 className="text-base font-black text-white leading-tight">
+                  {arenaMode === "vs_ai" ? `🤖 Versus AI Bot (${aiDifficulty})` : "🎮 Local 1v1 Split-Screen"}
+                </h1>
+              </div>
+
+              {gameState === "arena_quiz" && currentQuestion ? (
+                <div className="flex-1 max-w-lg mx-4 text-center px-4 py-1.5 bg-slate-950/70 border border-slate-800 rounded-lg">
+                  <span className="text-[10px] font-black text-cyan-300 uppercase tracking-widest block mb-0.5 animate-pulse">Speed Quiz Duel</span>
+                  <span className="text-xs font-bold text-white block truncate">{currentQuestion.q}</span>
+                </div>
+              ) : (
+                <div className="flex-1 max-w-lg mx-4 text-center px-4 py-1.5 bg-slate-950/30 rounded-lg border border-transparent">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Drop Phase</span>
+                  <span className="text-xs font-bold text-slate-400 block">Steer and land your blocks!</span>
+                </div>
+              )}
+
+              <div className="text-right">
+                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Win Target</span>
+                <span className="block text-sm font-black text-white">{WIN_SCORE_TARGET} Pts</span>
+              </div>
+            </header>
+
+            <div className="arena-board-grid flex-1 w-full min-h-0 grid grid-cols-2 gap-3 sm:gap-6 items-stretch mb-2">
+              <section className="flex flex-col items-center min-h-0 relative" aria-label="Player 1 Board">
+                <div className="w-full flex justify-between items-center mb-1.5 px-3 py-1 bg-slate-900/80 rounded-lg text-xs font-bold border border-slate-800 shadow-lg">
+                  <span className="text-cyan-300">P1: <span className="text-sm font-black">{totalScore}</span><span className="text-slate-500">/500</span></span>
+                  {correctStreak >= 3 && <span className="text-yellow-400 font-black animate-pulse">🔥 x{correctStreak}</span>}
+                  <span className="text-red-400 flex items-center gap-0.5">
+                    {Array.from({ length: STRIKES_ALLOWED }).map((_, i) => (
+                      <span key={i} className={i < misses ? "text-slate-600 text-[10px]" : "text-red-500 text-[10px]"}>{i < misses ? "🖤" : "❤️"}</span>
+                    ))}
+                  </span>
+                </div>
+
+                <div
+                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? "animate-shake" : ""} ${correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                >
+                  {displayBoard.map((row, y) =>
+                    row.map((cell, x) => {
+                      const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
+                      let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                      let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
+
+                      if (cell?.isGhost) {
+                        cellClass += " ghost-block opacity-45";
+                      } else {
+                        if (cell?.isStone) cellClass += " border border-slate-400 bg-slate-600";
+                        if (isExploding) {
+                          cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
+                        }
+                      }
+
+                      return (
+                        <div key={`${y}-${x}`} className={cellClass}>
+                          {cell?.emoji || ""}
+                        </div>
+                      );
+                    })
+                  )}
+
+                  {floatingTexts.map((t) => (
+                    <div
+                      key={t.id}
+                      className="absolute z-30 font-black text-xs text-yellow-400 pointer-events-none animate-float-text select-none text-center drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.8)]"
+                      style={{
+                        top: `${(t.y / BOARD_HEIGHT) * 100}%`,
+                        left: `${(t.x / BOARD_WIDTH) * 100}%`,
+                      }}
+                    >
+                      {t.text}
+                    </div>
+                  ))}
+
+                  {gameState === "arena_dropping" && !isControllable && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs p-2 text-center border-2 border-slate-500">
+                      <h4 className="text-red-400 font-bold uppercase tracking-widest text-[9px] drop-shadow-md">Stone block locked!</h4>
+                    </div>
+                  )}
+                  {gameState === "arena_dropping" && isControllable && (
+                    <div className="absolute top-1 left-1 bg-green-500/20 border border-green-500/40 text-green-300 font-black text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">
+                      Controllable
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className="flex flex-col items-center min-h-0 relative" aria-label="Player 2 Board">
+                <div className="w-full flex justify-between items-center mb-1.5 px-3 py-1 bg-slate-900/80 rounded-lg text-xs font-bold border border-slate-800 shadow-lg">
+                  <span className="text-fuchsia-300">P2: <span className="text-sm font-black">{totalScore2}</span><span className="text-slate-500">/500</span></span>
+                  {correctStreak2 >= 3 && <span className="text-yellow-400 font-black animate-pulse">🔥 x{correctStreak2}</span>}
+                  <span className="text-red-400 flex items-center gap-0.5">
+                    {Array.from({ length: STRIKES_ALLOWED }).map((_, i) => (
+                      <span key={i} className={i < misses2 ? "text-slate-600 text-[10px]" : "text-red-500 text-[10px]"}>{i < misses2 ? "🖤" : "❤️"}</span>
+                    ))}
+                  </span>
+                </div>
+
+                <div
+                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? "animate-shake" : ""} ${correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                >
+                  {(() => {
+                    const displayBoard2 = board2.map(row => [...row]);
+
+                    if (activePiece2 && gameState === "arena_dropping" && isControllable2) {
+                      let ghostY = activePiece2.y;
+                      while (!checkCollision({ ...activePiece2, y: ghostY + 1 }, board2)) ghostY += 1;
+                      if (ghostY > activePiece2.y) {
+                        activePiece2.shape.forEach((row, y) => {
+                          row.forEach((value, x) => {
+                            if (!value) return;
+                            const boardY = ghostY + y;
+                            const boardX = activePiece2.x + x;
+                            if (
+                              boardY >= 0 && boardY < BOARD_HEIGHT &&
+                              boardX >= 0 && boardX < BOARD_WIDTH &&
+                              displayBoard2[boardY][boardX] === null
+                            ) {
+                              displayBoard2[boardY][boardX] = {
+                                color: activePiece2.color,
+                                emoji: "",
+                                isGhost: true,
+                              };
+                            }
+                          });
+                        });
+                      }
+                    }
+
+                    if (activePiece2) {
+                      activePiece2.shape.forEach((row, y) => {
+                        row.forEach((value, x) => {
+                          if (!value) return;
+                          const boardY = activePiece2.y + y;
+                          const boardX = activePiece2.x + x;
+                          if (boardY >= 0 && boardY < BOARD_HEIGHT && boardX >= 0 && boardX < BOARD_WIDTH) {
+                            displayBoard2[boardY][boardX] = {
+                              color: activePiece2.color,
+                              isFruit: activePiece2.isFruit,
+                              fruitType: activePiece2.fruitType,
+                              emoji: activePiece2.emoji,
+                              isStone: activePiece2.isStone,
+                              isTNT: activePiece2.isTNT,
+                              isDrill: activePiece2.isDrill,
+                              isLightning: activePiece2.isLightning,
+                            };
+                          }
+                        });
+                      });
+                    }
+
+                    return displayBoard2.map((row, y) =>
+                      row.map((cell, x) => {
+                        const isExploding = explodingCells2.some((item) => item.y === y && item.x === x);
+                        let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                        let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
+
+                        if (cell?.isGhost) {
+                          cellClass += " ghost-block opacity-45";
+                        } else {
+                          if (cell?.isStone) cellClass += " border border-slate-400 bg-slate-600";
+                          if (isExploding) {
+                            cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
+                          }
+                        }
+
+                        return (
+                          <div key={`${y}-${x}`} className={cellClass}>
+                            {cell?.emoji || ""}
+                          </div>
+                        );
+                      })
+                    );
+                  })()}
+
+                  {floatingTexts2.map((t) => (
+                    <div
+                      key={t.id}
+                      className="absolute z-30 font-black text-xs text-yellow-400 pointer-events-none animate-float-text select-none text-center drop-shadow-[0_1.5px_3px_rgba(0,0,0,0.8)]"
+                      style={{
+                        top: `${(t.y / BOARD_HEIGHT) * 100}%`,
+                        left: `${(t.x / BOARD_WIDTH) * 100}%`,
+                      }}
+                    >
+                      {t.text}
+                    </div>
+                  ))}
+
+                  {gameState === "arena_dropping" && !isControllable2 && (
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs p-2 text-center border-2 border-slate-500">
+                      <h4 className="text-red-400 font-bold uppercase tracking-widest text-[9px] drop-shadow-md">
+                        {arenaMode === "vs_ai" ? "AI Stone Block locked!" : "P2 Stone block locked!"}
+                      </h4>
+                    </div>
+                  )}
+                  {gameState === "arena_dropping" && isControllable2 && (
+                    <div className="absolute top-1 left-1 bg-green-500/20 border border-green-500/40 text-green-300 font-black text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wider animate-pulse">
+                      {arenaMode === "vs_ai" ? "AI Controller" : "Controllable"}
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <div className="arena-control-grid w-full grid grid-cols-2 gap-4 shrink-0 min-h-[140px] items-stretch">
+              <div className="bg-slate-900/60 rounded-xl p-2 border border-slate-850 flex flex-col justify-center items-center text-center">
+                {gameState === "arena_quiz" && currentQuestion ? (
+                  p1Answered === null ? (
+                    <div className="w-full">
+                      <span className="text-[10px] font-black text-cyan-300 tracking-wider block mb-1">Player 1 Options (Keys 1-4)</span>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {currentQuestion.options.map((opt, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleArenaAnswer(1, idx)}
+                            className="arena-answer-button bg-slate-700 hover:bg-cyan-600 text-white font-bold p-1 px-2 rounded-lg text-xs leading-tight border border-slate-600 text-left flex items-center gap-1.5"
+                          >
+                            <span className="bg-slate-900 text-cyan-300 w-4 h-4 rounded-full flex items-center justify-center text-[9px] shrink-0 font-black">{idx + 1}</span>
+                            <span>{opt}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-2 h-full">
+                      <span className={`text-sm font-black ${p1Answered === "correct" ? "text-green-400" : "text-red-400"} animate-pulse`}>
+                        {p1Answered === "correct" ? "Approved! ⚡" : "Wrong Answer! 🧱"}
+                      </span>
+                      <span className="text-[9px] text-slate-400 mt-0.5 font-semibold">
+                        {p1Answered === "correct" ? "Wait for placement" : "Locked out of question"}
+                      </span>
+                    </div>
+                  )
+                ) : (
+                  isControllable ? (
+                    <div className="w-full">
+                      <span className="text-[9px] font-black text-emerald-400 tracking-wider block mb-1">Steer P1 (Keys W-A-S-D + Space)</span>
+                      <div className="flex gap-2 justify-center lg:hidden">
+                        <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button flex-1 h-9 text-xs">←</button>
+                        <button type="button" onClick={rotatePiece} className="mobile-control-button flex-1 h-9 text-xs">Rotate</button>
+                        <button type="button" onClick={moveDown} className="mobile-control-button flex-1 h-9 text-xs">↓</button>
+                        <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button flex-1 h-9 text-xs">→</button>
+                        <button type="button" onClick={hardDrop} className="mobile-drop-button flex-1 h-9 text-[9px] px-1 font-black">DROP</button>
+                      </div>
+                      <div className="hidden lg:block text-[11px] text-slate-400 font-semibold space-x-1.5">
+                        <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">A/D</kbd> Move</span>
+                        <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">W</kbd> Rotate</span>
+                        <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Space</kbd> Drop</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <span className="text-xs text-slate-500 font-black uppercase">Stone dropping...</span>
+                    </div>
+                  )
+                )}
+              </div>
+
+              <div className="bg-slate-900/60 rounded-xl p-2 border border-slate-850 flex flex-col justify-center items-center text-center">
+                {arenaMode === "vs_ai" ? (
+                  <div className="flex flex-col items-center justify-center py-2 h-full text-center">
+                    <span className="text-2xl animate-bounce mb-0.5">🤖</span>
+                    <span className="text-[10px] font-black text-fuchsia-400 uppercase tracking-widest leading-none">AI Agent Bot</span>
+                    <span className="text-[9px] text-slate-400 font-semibold mt-1">
+                      {gameState === "arena_quiz" && p2Answered === null && "Analyzing question clues..."}
+                      {gameState === "arena_quiz" && p2Answered === "correct" && "Correct! Dropping block..."}
+                      {gameState === "arena_quiz" && p2Answered === "wrong" && "Locked out! Stone block created."}
+                      {gameState === "arena_dropping" && isControllable2 && "Aligning block columns..."}
+                      {gameState === "arena_dropping" && !isControllable2 && "Stone falling down column..."}
+                      {gameState === "arena_resolving" && "Evaluating grids..."}
+                    </span>
+                  </div>
+                ) : (
+                  gameState === "arena_quiz" && currentQuestion ? (
+                    p2Answered === null ? (
+                      <div className="w-full">
+                        <span className="text-[10px] font-black text-fuchsia-300 tracking-wider block mb-1">Player 2 Options (Keys 7-0)</span>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {currentQuestion.options.map((opt, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleArenaAnswer(2, idx)}
+                              className="arena-answer-button bg-slate-700 hover:bg-fuchsia-600 text-white font-bold p-1 px-2 rounded-lg text-xs leading-tight border border-slate-600 text-left flex items-center gap-1.5"
+                            >
+                              <span className="bg-slate-900 text-fuchsia-300 w-4 h-4 rounded-full flex items-center justify-center text-[9px] shrink-0 font-black">{idx + 7}</span>
+                              <span>{opt}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-2 h-full">
+                        <span className={`text-sm font-black ${p2Answered === "correct" ? "text-green-400" : "text-red-400"} animate-pulse`}>
+                          {p2Answered === "correct" ? "Approved! ⚡" : "Wrong Answer! 🧱"}
+                        </span>
+                        <span className="text-[9px] text-slate-400 mt-0.5 font-semibold">
+                          {p2Answered === "correct" ? "Wait for placement" : "Locked out of question"}
+                        </span>
+                      </div>
+                    )
+                  ) : (
+                    isControllable2 ? (
+                      <div className="w-full">
+                        <span className="text-[9px] font-black text-emerald-400 tracking-wider block mb-1">Steer P2 (Arrows + Enter)</span>
+                        <div className="flex gap-2 justify-center lg:hidden">
+                          <button type="button" onClick={() => moveHorizontal2(-1)} className="mobile-control-button flex-1 h-9 text-xs">←</button>
+                          <button type="button" onClick={rotatePiece2} className="mobile-control-button flex-1 h-9 text-xs">Rotate</button>
+                          <button type="button" onClick={moveDown2} className="mobile-control-button flex-1 h-9 text-xs">↓</button>
+                          <button type="button" onClick={() => moveHorizontal2(1)} className="mobile-control-button flex-1 h-9 text-xs">→</button>
+                          <button type="button" onClick={hardDrop2} className="mobile-drop-button flex-1 h-9 text-[9px] px-1 font-black">DROP</button>
+                        </div>
+                        <div className="hidden lg:block text-[11px] text-slate-400 font-semibold space-x-1.5">
+                          <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Arrows</kbd> Move</span>
+                          <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Up</kbd> Rotate</span>
+                          <span><kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">Enter</kbd> Drop</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <span className="text-xs text-slate-500 font-black uppercase">Stone dropping...</span>
+                      </div>
+                    )
+                  )
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Arena Intro Countdown Screen */}
+        {!isMenu && gameState === "arena_intro" && (
+          <section className="w-full max-w-xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[400px]">
+            <BrainSparksCanvas />
+
+            <span className="text-[10px] font-black text-purple-400 uppercase tracking-[0.25em] mb-1 z-10 animate-pulse">
+              GET READY FOR DUEL
+            </span>
+            <h2 className="text-3xl font-black text-white mb-2 z-10 text-center">
+              {arenaMode === "vs_ai" ? "🤖 PLAYER VS AI BOT" : "🎮 PLAYER 1 VS PLAYER 2"}
+            </h2>
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-6 z-10">
+              Theme: {arenaLevel === 99 ? "Custom Pack" : LEVELS.find(l => l.id === arenaLevel)?.name}
+            </p>
+
+            <div className="w-full max-w-md bg-slate-950/60 border border-slate-700/50 p-4 rounded-2xl shadow-inner text-center z-10 backdrop-blur-md mb-8">
+              <h3 className="text-[9px] font-black uppercase text-cyan-300 tracking-wider mb-2">Versus Rules</h3>
+              <p className="text-slate-300 text-xs leading-relaxed font-semibold">
+                Answering correctly wins the round, granting block steering control! If you clear lines, you will send heavy stone rows to block your opponent's board. Reach 500 points first to win!
+              </p>
+            </div>
+
+            <div className="z-10 flex flex-col items-center">
+              <div className="text-slate-400 uppercase font-black tracking-widest text-[10px] mb-1 animate-pulse">
+                Match starts in
+              </div>
+              <div className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-br from-purple-400 via-rose-500 to-amber-500 animate-bounce">
+                {introCountdown > 0 ? introCountdown : "DUEL!"}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Arena Match Victory Screen */}
+        {!isMenu && gameState === "arena_win" && (
+          <section className="w-full max-w-xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[420px] text-center">
+            <BrainSparksCanvas />
+
+            <h2 className="text-4xl md:text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-rose-500 to-amber-500 drop-shadow-md">
+              DUEL CONCLUDED
+            </h2>
+
+            <div className="w-32 h-32 rounded-full border-4 border-yellow-400 bg-yellow-400/10 flex items-center justify-center text-6xl mb-6 shadow-[0_0_25px_rgba(250,204,21,0.3)] animate-bounce z-10">
+              {arenaResult === "p1_win" ? "🏆" : "🤖"}
+            </div>
+
+            <h3 className="text-2xl font-black text-white mb-2 z-10">
+              {arenaResult === "p1_win" && "Player 1 Wins the Match!"}
+              {arenaResult === "p2_win" && "Player 2 Wins the Match!"}
+              {arenaResult === "ai_win" && "AI Agent Bot Wins the Match!"}
+            </h3>
+
+            <p className="text-slate-300 text-sm font-semibold mb-6 z-10">
+              {arenaResult === "p1_win"
+                ? "Congratulations Player 1! You answered faster and defended your grid with expert coordination."
+                : "The AI outpaced your inputs or your grid topped out. Train more and try again!"}
+            </p>
+
+            <div className="bg-slate-950/60 border border-slate-700/50 p-4 rounded-2xl shadow-inner z-10 backdrop-blur-md mb-8 grid grid-cols-2 gap-4 w-full text-xs font-bold">
+              <div className="text-left border-r border-slate-800 pr-2">
+                <span className="block text-slate-400 mb-0.5">Player 1 Score</span>
+                <span className="block text-lg font-black text-cyan-300">{totalScore} / {WIN_SCORE_TARGET}</span>
+              </div>
+              <div className="text-right pl-2">
+                <span className="block text-slate-400 mb-0.5">Player 2 / AI Score</span>
+                <span className="block text-lg font-black text-fuchsia-300">{totalScore2} / {WIN_SCORE_TARGET}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-4 z-10 w-full justify-center">
+              <button
+                type="button"
+                onClick={() => startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
+                className="flex-1 bg-gradient-to-r from-purple-600 to-rose-500 hover:from-purple-500 hover:to-rose-400 text-white font-black py-3 px-6 rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 text-xs font-black uppercase tracking-wider"
+              >
+                Replay Duel
+              </button>
+              <button
+                type="button"
+                onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("arena"); }}
+                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-black py-3 px-6 rounded-xl border border-slate-600 shadow-md transition-transform hover:scale-105 active:scale-95 text-xs font-black uppercase tracking-wider"
+              >
+                Arena Lobby
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* Playable Game Grid View */}
-        {!isMenu && gameState !== "intro" && (
+        {!isMenu && gameState !== "intro" && !isArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
           <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
             <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
-              <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{WIN_SCORE_TARGET}</span></span>
+              <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{runTarget}</span></span>
               {windForce !== 0 && (
                 <span className="text-sky-300 font-bold animate-pulse text-xs flex items-center gap-1">
                   💨 Wind: {windForce > 0 ? "👉 Right" : "👈 Left"}
@@ -2737,20 +4968,32 @@ Can you beat my score? Play ThinkFastBlast!`;
                   🔥 Streak: {correctStreak}
                 </span>
               )}
-              <span className="text-red-400 flex items-center gap-0.5" aria-label={`Strikes ${misses} of ${STRIKES_ALLOWED}`}>
-                {Array.from({ length: STRIKES_ALLOWED }).map((_, i) => (
+              <span className="text-red-400 flex items-center gap-0.5" aria-label={`Strikes ${misses} of ${strikeLimit}`}>
+                {Array.from({ length: strikeLimit }).map((_, i) => (
                   <span key={i} className={i < misses ? "strike-heart strike-heart-lost" : "strike-heart"}>
                     {i < misses ? "🖤" : "❤️"}
                   </span>
                 ))}
               </span>
             </div>
+            <div className="piece-preview-row game-board-width">
+              <PiecePreview label="Hold" piece={heldPiece} muted={!heldPiece || holdUsed} />
+              <div className="piece-preview-mission">
+                <span>{DIFFICULTY_PRESETS[difficultyMode].label}</span>
+                <strong>{runConfig.objective.label}</strong>
+              </div>
+              <PiecePreview label="Next" piece={nextPiece} />
+            </div>
 
             {nearWin && (
               <div className="match-point-banner game-board-width">
-                🎯 MATCH POINT — {WIN_SCORE_TARGET - totalScore} to win!
+                🎯 MATCH POINT — {runTarget - totalScore} to score goal!
               </div>
             )}
+            <div className={objectiveStatus.complete ? "mission-banner mission-banner-complete game-board-width" : "mission-banner game-board-width"}>
+              <span>{objectiveStatus.complete ? "✓" : "◆"} {runConfig.objective.label}</span>
+              <strong>{objectiveStatus.current}/{objectiveStatus.required}</strong>
+            </div>
 
             <div
               className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? "animate-shake" : ""} ${correctStreak >= 7 ? "combo-heat-3" : correctStreak >= 5 ? "combo-heat-2" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
@@ -2760,7 +5003,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               {displayBoard.map((row, y) =>
                 row.map((cell, x) => {
                   const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
-                  
+
                   // Apply active styles including Matrix code values for Retro theme
                   let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
                   let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cellColorClass}`;
@@ -2775,7 +5018,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     if (cell?.isLightning) cellClass += " animate-glow-lightning";
 
                     if (isExploding) {
-                      cellClass += " transition-all duration-[400ms] ease-out scale-150 opacity-0 rotate-180 z-10 blur-sm";
+                      cellClass += ` block-detonating block-detonating-${blastEffect}`;
                     } else if (cell) {
                       cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
                     }
@@ -2805,7 +5048,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
               )}
 
-              <BoardParticlesCanvas explodingCells={explodingCells} correctStreak={correctStreak} />
+              <BoardParticlesCanvas
+                explodingCells={explodingCells}
+                correctStreak={correctStreak}
+                effectType={blastEffect}
+              />
 
               {/* Floating Combo / Points Feedback Popups */}
               {floatingTexts.map((t) => (
@@ -2840,7 +5087,18 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <button type="button" onClick={moveDown} className="mobile-control-button" aria-label="Soft drop">↓</button>
                   <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button" aria-label="Move right">→</button>
                 </div>
-                <button type="button" onClick={hardDrop} className="mobile-drop-button" aria-label="Hard drop to bottom">⬇ DROP ⬇</button>
+                <div className="grid grid-cols-[0.7fr_1.3fr] gap-1.5">
+                  <button
+                    type="button"
+                    onClick={holdCurrentPiece}
+                    disabled={holdUsed}
+                    className="mobile-hold-button"
+                    aria-label="Hold or swap piece"
+                  >
+                    {holdUsed ? "HOLD USED" : "↔ HOLD"}
+                  </button>
+                  <button type="button" onClick={hardDrop} className="mobile-drop-button" aria-label="Hard drop to bottom">⬇ DROP ⬇</button>
+                </div>
               </div>
             )}
           </section>
@@ -2850,14 +5108,14 @@ Can you beat my score? Play ThinkFastBlast!`;
         {!isMenu && gameState === "intro" && (
           <section className="w-full max-w-2xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[450px]">
             <BrainSparksCanvas />
-            
+
             {/* Pulsing glow brain */}
             <svg viewBox="0 0 100 100" className="w-24 h-24 text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.85)] animate-pulse mb-6 z-10">
-              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" 
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                 d="M35,45 C28,45 22,38 28,30 C32,25 40,25 45,33 C48,25 56,25 60,30 C66,38 60,45 53,45" />
-              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" 
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                 d="M35,45 C35,62 48,68 50,75 C52,68 65,62 65,45" />
-              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" 
+              <path fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
                 d="M50,28 L50,75 M32,45 H68" />
               <circle cx="38" cy="35" r="1.5" fill="#a855f7" className="animate-ping" />
               <circle cx="62" cy="35" r="1.5" fill="#a855f7" className="animate-ping" />
@@ -2870,6 +5128,11 @@ Can you beat my score? Play ThinkFastBlast!`;
             <h2 className="text-2xl md:text-3xl font-black text-white mb-6 z-10 drop-shadow-md">
               {currentLevel.name}
             </h2>
+            <div className="z-10 -mt-3 mb-5 flex flex-wrap justify-center gap-2">
+              <span className="intro-rule-chip">{DIFFICULTY_PRESETS[difficultyMode].label}</span>
+              <span className="intro-rule-chip">{runTarget} point target</span>
+              <span className="intro-rule-chip intro-rule-chip-mission">{runConfig.objective.label}</span>
+            </div>
 
             {/* Curated Fact card */}
             <div className="w-full max-w-md bg-slate-950/60 border border-slate-700/50 p-5 rounded-2xl shadow-inner text-center z-10 backdrop-blur-md mb-8">
@@ -2907,6 +5170,36 @@ Can you beat my score? Play ThinkFastBlast!`;
                     Fast answers. Falling pieces. Chain reactions.
                   </p>
 
+                  <div className="profile-strip">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playSFX("button");
+                        setMenuTab("profiles");
+                      }}
+                      className="profile-chip"
+                    >
+                      <span className="profile-chip-avatar">{activeProfile?.avatar || "⚡"}</span>
+                      <span>
+                        <strong>{activeProfile?.name || "Player 1"}</strong>
+                        <small>{stats.unlockedAchievements?.length || 0}/{Object.keys(ACHIEVEMENTS).length} achievements</small>
+                      </span>
+                    </button>
+                    <div className="difficulty-switcher" aria-label="Difficulty">
+                      {Object.values(DIFFICULTY_PRESETS).map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleDifficultyChange(preset.id)}
+                          className={difficultyMode === preset.id ? "difficulty-pill difficulty-pill-active" : "difficulty-pill"}
+                          title={preset.description}
+                        >
+                          {preset.id === "young" ? "Young" : preset.id === "normal" ? "Arcade" : "Expert"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="menu-hero-actions">
                     <button
                       type="button"
@@ -2915,8 +5208,25 @@ Can you beat my score? Play ThinkFastBlast!`;
                     >
                       Start Level {maxUnlockedLevel}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => startLevel(98)}
+                      className="menu-ghost-button border-amber-400/40 text-amber-200 hover:text-white"
+                    >
+                      ☀ Daily Blast
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { playSFX("button"); setMenuTab("arena"); }}
+                      className="menu-ghost-button border-purple-400/40 text-purple-300 hover:text-white shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                    >
+                      🔮 Blast Arena
+                    </button>
                     <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-ghost-button">
                       Glitch Codex
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("achievements"); }} className="menu-ghost-button border-amber-400/30 text-amber-200 hover:text-white">
+                      🏆 Achievements
                     </button>
                     <button
                       type="button"
@@ -2927,6 +5237,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                     </button>
                     <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-ghost-button">
                       How To Play
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("settings"); }} className="menu-ghost-button">
+                      ⚙ Settings
                     </button>
                   </div>
 
@@ -2942,16 +5255,17 @@ Can you beat my score? Play ThinkFastBlast!`;
                     {(() => {
                       const pulseLevelObj = LEVELS.find((l) => l.id === maxUnlockedLevel) || LEVELS[0];
                       const bestScoreVal = stats.highScores[maxUnlockedLevel] || 0;
-                      const pulsePercentage = Math.min(100, Math.round((bestScoreVal / 500) * 100));
+                      const previewTarget = getRunConfig(maxUnlockedLevel, difficultyMode).target;
+                      const pulsePercentage = Math.min(100, Math.round((bestScoreVal / previewTarget) * 100));
                       return (
                         <div className="menu-preview-copy">
                           <div className="menu-kicker">Lvl {pulseLevelObj.id} Best Run</div>
-                          <div className="menu-preview-score">{bestScoreVal} / 500</div>
+                          <div className="menu-preview-score">{bestScoreVal} / {previewTarget}</div>
                           <div className="menu-preview-meter">
                             <span style={{ width: `${pulsePercentage}%` }} />
                           </div>
                           <div className="menu-preview-chips">
-                            {bestScoreVal >= 500 ? (
+                            {bestScoreVal >= previewTarget ? (
                               <>
                                 <span className="border-green-500/20 bg-green-500/10 text-green-300">✓ Cleared</span>
                                 <span className="border-cyan-500/20 bg-cyan-500/10 text-cyan-300">Master</span>
@@ -2992,9 +5306,30 @@ Can you beat my score? Play ThinkFastBlast!`;
                           if(confirm("Reset all statistics and game progress?")) {
                             playSFX("button");
                             setMaxUnlockedLevel(1);
-                            const reset = { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default" };
+                            const reset = {
+                              highScores: {},
+                              totalGames: 0,
+                              totalCorrect: 0,
+                              totalQuestions: 0,
+                              glitches: 0,
+                              unlockedItems: [],
+                              activeTheme: "default",
+                              unlockedAchievements: [],
+                              bestStreak: 0,
+                              dailyStreak: 0,
+                              lastDailyWin: "",
+                              dailyBest: 0,
+                              levelsWon: 0,
+                              arenaWins: 0,
+                              totalLines: 0,
+                              totalMatches: 0,
+                              totalFruits: 0,
+                              totalSpecials: 0,
+                            };
                             setStats(reset);
-                            localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(reset));
+                            saveStats(reset);
+                            writeScopedValue(RECENT_QUESTIONS_STORAGE_KEY, "[]");
+                            earnedRef.current = null;
                           }
                         }}
                         className="menu-mini-button menu-mini-danger"
@@ -3009,6 +5344,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       {LEVELS.map((item) => {
                         const isUnlocked = item.id <= maxUnlockedLevel;
                         const bestScore = stats.highScores[item.id] || 0;
+                        const cardRunConfig = getRunConfig(item.id, difficultyMode);
                         return (
                           <button
                             key={item.id}
@@ -3031,6 +5367,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                             <span className="level-card-theme">
                               {item.theme}
                             </span>
+                            {isUnlocked && (
+                              <span className="level-card-objective">
+                                {cardRunConfig.target} pts · {cardRunConfig.objective.label}
+                              </span>
+                            )}
                             {isUnlocked && bestScore > 0 && (
                               <span className="level-card-best">
                                 Best {bestScore}
@@ -3073,6 +5414,390 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </section>
               </div>
             </div>
+          ) : menuTab === "arena" ? (
+            <div className="menu-panel w-full max-w-4xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-6 z-10 overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-4 shrink-0">
+                <div className="text-left">
+                  <h2 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-rose-400">
+                    🔮 The Blast Arena
+                  </h2>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    Compete in split-screen quiz battles against local players or AI bots
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { playSFX("button"); setMenuTab("levels"); }}
+                  className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2 px-5 rounded-xl text-xs border border-slate-600 shadow-md transition-colors"
+                >
+                  Back to Menu
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-6 overflow-y-auto pr-1">
+                <div className="flex-1 space-y-5 text-left bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
+                  <div>
+                    <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2">1. Select Mode</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { playSFX("button"); setArenaMode("vs_ai"); }}
+                        className={`py-3 px-4 rounded-xl text-sm font-black uppercase transition-all flex flex-col items-center justify-center border ${
+                          arenaMode === "vs_ai"
+                            ? "bg-purple-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)] scale-[1.02]"
+                            : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-2xl mb-1">🤖</span>
+                        VS AI Bot
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { playSFX("button"); setArenaMode("vs_player"); }}
+                        className={`py-3 px-4 rounded-xl text-sm font-black uppercase transition-all flex flex-col items-center justify-center border ${
+                          arenaMode === "vs_player"
+                            ? "bg-purple-600 border-purple-400 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)] scale-[1.02]"
+                            : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-2xl mb-1">🎮</span>
+                        Local 1v1
+                      </button>
+                    </div>
+                  </div>
+
+                  {arenaMode === "vs_ai" && (
+                    <div className="animate-float-text">
+                      <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2">2. AI Difficulty</h3>
+                      <div className="flex gap-2 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+                        {["easy", "medium", "hard"].map((diff) => (
+                          <button
+                            key={diff}
+                            type="button"
+                            onClick={() => { playSFX("button"); setAiDifficulty(diff); }}
+                            className={`flex-1 py-2 text-xs font-black uppercase tracking-wider rounded-lg transition-colors ${
+                              aiDifficulty === diff
+                                ? "bg-purple-500 text-white shadow-[0_0_8px_rgba(168,85,247,0.25)]"
+                                : "text-slate-400 hover:text-white"
+                            }`}
+                          >
+                            {diff}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-2 font-semibold italic">
+                        {aiDifficulty === "easy" && "🤖 Easy: Bot answers slowly and misses occasionally."}
+                        {aiDifficulty === "medium" && "🤖 Medium: Bot answers steadily with solid accuracy."}
+                        {aiDifficulty === "hard" && "⚡ Hard: Bot answers very fast and rarely makes mistakes!"}
+                      </p>
+                    </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2">
+                      {arenaMode === "vs_player" ? "2. Local Split Controls" : "3. Local Controls"}
+                    </h3>
+                    <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-[11px] font-semibold text-slate-300 leading-relaxed space-y-1.5">
+                      <div><strong className="text-cyan-300">P1 (Left):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">1</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">4</kbd> to answer · <kbd className="bg-slate-800 text-white px-1 rounded">W/A/S/D</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Space</kbd> drop</div>
+                      {arenaMode === "vs_player" && (
+                        <div><strong className="text-fuchsia-300">P2 (Right):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">7</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">0</kbd> (or <kbd className="bg-slate-800 text-white px-1 rounded">U/I/O/P</kbd>) to answer · <kbd className="bg-slate-800 text-white px-1 rounded">Arrows</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Enter</kbd> drop</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col min-h-0 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
+                  <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2 text-left">
+                    {arenaMode === "vs_player" ? "3. Select Trivia Pack" : "4. Select Trivia Pack"}
+                  </h3>
+                  <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
+                    {LEVELS.map((lvl) => (
+                      <button
+                        key={lvl.id}
+                        type="button"
+                        onClick={() => { playSFX("button"); setArenaLevel(lvl.id); }}
+                        className={`w-full text-left p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                          arenaLevel === lvl.id
+                            ? "bg-purple-950/40 border-purple-500/50 text-white shadow-inner"
+                            : "bg-slate-950/40 border-slate-800/80 text-slate-300 hover:border-slate-700"
+                        }`}
+                      >
+                        <div>
+                          <span className="block text-xs font-black text-white">{lvl.id}. {lvl.name}</span>
+                          <span className="block text-[10px] text-slate-400 font-semibold">{lvl.theme}</span>
+                        </div>
+                        <span className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded font-black text-purple-300">
+                          {lvl.ageHint}
+                        </span>
+                      </button>
+                    ))}
+                    {customQuestions.length > 0 && (
+                      <button
+                        key={99}
+                        type="button"
+                        onClick={() => { playSFX("button"); setArenaLevel(99); }}
+                        className={`w-full text-left p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                          arenaLevel === 99
+                            ? "bg-purple-950/40 border-purple-500/50 text-white shadow-inner"
+                            : "bg-slate-950/40 border-slate-800/80 text-slate-300 hover:border-slate-700"
+                        }`}
+                      >
+                        <div>
+                          <span className="block text-xs font-black text-cyan-300">🎯 Custom Pack</span>
+                          <span className="block text-[10px] text-slate-400 font-semibold">{customQuestions.length} custom questions</span>
+                        </div>
+                        <span className="text-[10px] bg-cyan-950 border border-cyan-900 px-2 py-0.5 rounded font-black text-cyan-300">
+                          Custom
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-700/50 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
+                  className="w-full bg-gradient-to-r from-purple-600 to-rose-500 hover:from-purple-500 hover:to-rose-400 text-white font-black py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(168,85,247,0.35)] hover:scale-[1.01] transition-transform text-sm font-black uppercase tracking-widest text-center"
+                >
+                  🔥 START ARENA DUEL
+                </button>
+              </div>
+            </div>
+          ) : menuTab === "profiles" ? (
+            <div className="menu-panel w-full max-w-4xl bg-slate-800/85 backdrop-blur-xl border border-cyan-400/20 rounded-3xl shadow-2xl p-4 md:p-6 z-10 overflow-y-auto">
+              <div className="flex items-center justify-between gap-4 border-b border-slate-700/60 pb-4 mb-5">
+                <div className="text-left">
+                  <div className="menu-kicker">Local Save Slots</div>
+                  <h2 className="text-2xl md:text-3xl font-black text-white">Player Profiles</h2>
+                  <p className="text-xs font-semibold text-slate-400 mt-1">
+                    Each profile keeps separate progress, records, unlocks, difficulty, and question history.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSFX("button");
+                    setMenuTab("levels");
+                  }}
+                  className="menu-ghost-button"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {profiles.map((profile) => {
+                  const isActive = profile.id === activeProfileId;
+                  return (
+                    <article key={profile.id} className={isActive ? "profile-card profile-card-active" : "profile-card"}>
+                      <div className="profile-card-avatar">{profile.avatar}</div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className="flex items-center gap-2">
+                          <h3 className="truncate text-lg font-black text-white">{profile.name}</h3>
+                          {isActive && <span className="profile-active-badge">Active</span>}
+                        </div>
+                        <p className="text-xs font-bold text-slate-400">
+                          {DIFFICULTY_PRESETS[profile.difficulty]?.label || "Arcade"} · Level {isActive ? maxUnlockedLevel : "save"}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-2">
+                        {!isActive && (
+                          <button
+                            type="button"
+                            onClick={() => handleProfileSwitch(profile.id)}
+                            className="menu-mini-button"
+                          >
+                            Play
+                          </button>
+                        )}
+                        {profiles.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteProfile(profile.id)}
+                            className="menu-mini-button menu-mini-danger"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 grid gap-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto]">
+                <div>
+                  <label htmlFor="profile-name" className="block text-left text-[10px] font-black uppercase tracking-widest text-cyan-300">
+                    New Profile
+                  </label>
+                  <input
+                    id="profile-name"
+                    value={profileNameDraft}
+                    onChange={(event) => setProfileNameDraft(event.target.value)}
+                    maxLength={18}
+                    placeholder={`Player ${profiles.length + 1}`}
+                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 font-bold text-white outline-none focus:border-cyan-400"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2" aria-label="Choose avatar">
+                    {PROFILE_AVATARS.map((avatar) => (
+                      <button
+                        key={avatar}
+                        type="button"
+                        onClick={() => setProfileAvatarDraft(avatar)}
+                        className={profileAvatarDraft === avatar ? "profile-avatar-choice profile-avatar-choice-active" : "profile-avatar-choice"}
+                        aria-label={`Use ${avatar} avatar`}
+                      >
+                        {avatar}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col justify-end gap-2">
+                  <button type="button" onClick={handleCreateProfile} className="menu-primary-button">
+                    Create Profile
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnboardingStep(0);
+                      setShowOnboarding(true);
+                    }}
+                    className="menu-ghost-button"
+                  >
+                    Replay Tutorial
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : menuTab === "settings" ? (
+            <div className="menu-panel settings-panel w-full max-w-3xl z-10">
+              <div className="settings-header">
+                <div className="text-left">
+                  <div className="menu-kicker">Player Preferences</div>
+                  <h2>Settings</h2>
+                  <p>Audio, motion, touch feedback, and visual clarity.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSFX("button");
+                    setMenuTab("levels");
+                  }}
+                  className="menu-ghost-button"
+                >
+                  Back
+                </button>
+              </div>
+
+              <section className="settings-section">
+                <div>
+                  <h3>Audio Mix</h3>
+                  <p>Music intensifies with danger and streak pressure. Set each layer independently.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAudioOn((enabled) => !enabled)}
+                  className={audioOn ? "settings-toggle settings-toggle-active" : "settings-toggle"}
+                  aria-pressed={audioOn}
+                >
+                  <span>All Audio</span>
+                  <strong>{audioOn ? "On" : "Muted"}</strong>
+                </button>
+                <div className="settings-volume-grid">
+                  {[
+                    ["Master", masterVol, handleMasterVolChange],
+                    ["Music", musicVol, handleMusicVolChange],
+                    ["SFX", sfxVol, handleSfxVolChange],
+                  ].map(([label, value, onChange]) => (
+                    <label key={label}>
+                      <span>{label}</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={value}
+                        onChange={(event) => onChange(event.target.value)}
+                      />
+                      <strong>{Math.round(value * 100)}%</strong>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section className="settings-section">
+                <div>
+                  <h3>Comfort & Accessibility</h3>
+                  <p>These settings save on this device and apply to every local profile.</p>
+                </div>
+                <div className="settings-choice-grid">
+                  {[
+                    ["Reduce Motion", "Minimizes transitions and animated effects.", reduceMotion, setReduceMotion],
+                    ["Screen Shake", "Adds impact to hard drops and explosions.", screenShakeEnabled, setScreenShakeEnabled],
+                    ["Haptics", "Uses vibration on supported mobile devices.", hapticsEnabled, setHapticsEnabled],
+                    ["High Contrast", "Strengthens separation between UI layers.", highContrast, setHighContrast],
+                  ].map(([label, description, enabled, setter]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setter(!enabled)}
+                      className={enabled ? "settings-choice settings-choice-active" : "settings-choice"}
+                      aria-pressed={enabled}
+                    >
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{description}</small>
+                      </span>
+                      <b>{enabled ? "On" : "Off"}</b>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+          ) : menuTab === "achievements" ? (
+            <div className="menu-panel achievement-cabinet w-full max-w-5xl z-10">
+              <div className="achievement-cabinet-header">
+                <div className="text-left">
+                  <div className="menu-kicker">Profile Progress</div>
+                  <h2>Achievement Cabinet</h2>
+                  <p>
+                    {stats.unlockedAchievements?.length || 0} of {Object.keys(ACHIEVEMENTS).length} earned
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playSFX("button");
+                    setMenuTab("levels");
+                  }}
+                  className="menu-ghost-button"
+                >
+                  Back
+                </button>
+              </div>
+
+              <div className="achievement-summary">
+                <MenuStatPill label="Levels Won" value={stats.levelsWon || 0} accent="text-amber-300" />
+                <MenuStatPill label="Best Streak" value={`x${stats.bestStreak || 0}`} accent="text-orange-300" />
+                <MenuStatPill label="Board Clears" value={(stats.totalLines || 0) + (stats.totalMatches || 0)} accent="text-cyan-300" />
+                <MenuStatPill label="Arena Wins" value={stats.arenaWins || 0} accent="text-fuchsia-300" />
+              </div>
+
+              <div className="achievement-grid">
+                {Object.entries(ACHIEVEMENTS).map(([id, definition]) => (
+                  <AchievementCard
+                    key={id}
+                    id={id}
+                    definition={definition}
+                    unlocked={stats.unlockedAchievements?.includes(id)}
+                    stats={stats}
+                    maxUnlockedLevel={maxUnlockedLevel}
+                  />
+                ))}
+              </div>
+            </div>
           ) : menuTab === "shop" ? (
             // Redesigned Glitch Codex Store
             <div className="menu-panel w-full max-w-4xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-5 z-10">
@@ -3085,7 +5810,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     Unlock theme cosmetics and catalyst block perks
                   </p>
                 </div>
-                
+
                 {/* Glitches count badge */}
                 <div className="bg-slate-950/60 px-4 py-2 rounded-full border border-purple-500/40 text-purple-300 font-black flex items-center gap-2 shadow-inner text-sm">
                   <span>👾 Glitches:</span>
@@ -3111,7 +5836,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       activeTheme: item.type === "theme" ? item.id : stats.activeTheme
                     };
                     setStats(updated);
-                    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                    saveStats(updated);
                   };
 
                   const handleEquip = () => {
@@ -3121,7 +5846,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       activeTheme: item.id
                     };
                     setStats(updated);
-                    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                    saveStats(updated);
                   };
 
                   return (
@@ -3136,7 +5861,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                         <p className="text-xs text-slate-400 mt-1 leading-normal font-semibold">
                           {item.desc}
                         </p>
-                        
+
                         <div className="mt-3">
                           {isUnlocked ? (
                             item.type === "theme" ? (
@@ -3185,7 +5910,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       playSFX("button");
                       const updated = { ...stats, activeTheme: "default" };
                       setStats(updated);
-                      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(updated));
+                      saveStats(updated);
                     }}
                     className="text-xs text-slate-400 hover:text-white underline font-bold"
                   >
@@ -3680,9 +6405,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                 How To Play
               </h1>
               <p className="text-sm md:text-base text-slate-300 mb-6 font-semibold">
-                Answer trivia cards rapidly, place your falling pieces strategically, and score <strong className="text-cyan-400">{WIN_SCORE_TARGET} points</strong> to advance.
+                Answer trivia cards rapidly, place your falling pieces strategically, and complete each level's score and mission goals to advance.
               </p>
-              
+
               <div className="grid md:grid-cols-2 gap-4 text-left text-xs md:text-sm mb-6">
                 <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-700/50 shadow-inner">
                   <h2 className="text-cyan-300 font-black uppercase tracking-wider text-xs mb-2.5">Basic Rules</h2>
@@ -3712,7 +6437,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         )}
 
         {/* Panel View for active gameplay states */}
-        {!isMenu && gameState !== "intro" && (
+        {!isMenu && gameState !== "intro" && !isArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
           <main className={panelClass}>
             <div className="static md:absolute md:top-4 md:right-4 mb-2 md:mb-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[10px] md:text-xs font-black px-3 md:px-4 py-1.5 rounded-full shadow-lg border border-white/20">
               LEVEL {level}: {currentLevel.name}
@@ -3724,7 +6449,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   Question {questionIndex + 1}
                 </h2>
-                <QuickAnswerTimer startTime={questionStartTime} active={gameState === "quiz"} />
+                <QuickAnswerTimer
+                  startTime={questionStartTime}
+                  active={gameState === "quiz"}
+                  windowSeconds={runConfig.difficulty.quickWindowSeconds}
+                />
                 <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
                   {currentQuestion.q}
                 </h3>
@@ -3795,6 +6524,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                           Space
                         </kbd> Hard Drop
                       </p>
+                      <p className="flex items-center gap-3">
+                        <kbd className="bg-slate-700 text-white font-black px-3 py-1.5 rounded shadow-inner border-b-4 border-slate-800">
+                          C
+                        </kbd> Hold / Swap
+                      </p>
                     </div>
                   </>
                 ) : (
@@ -3811,6 +6545,10 @@ Can you beat my score? Play ThinkFastBlast!`;
                   misses={misses}
                   activePiece={activePiece}
                   isControllable={isControllable}
+                  targetScore={runTarget}
+                  strikesAllowed={strikeLimit}
+                  objective={runConfig.objective}
+                  objectiveStatus={objectiveStatus}
                 />
               </div>
             )}
@@ -3818,7 +6556,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             {gameState === "level_win" && (
               <div className="w-full flex flex-col items-center md:items-start">
                 <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">
-                  Level Complete!
+                  {runMode === "daily" ? "Daily Blast Complete!" : runMode === "custom" ? "Custom Pack Complete!" : "Level Complete!"}
                 </h2>
 
                 <div className="flex items-center gap-2 mb-3" aria-label={`${winStars} of 3 stars`}>
@@ -3839,14 +6577,14 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <p className="text-base md:text-xl text-slate-300 mb-4 font-medium">
                   You reached <span className="score-readout">{animatedScore}</span> points on {currentLevel.name}!
                 </p>
-                
+
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-700/50 mb-5 text-xs md:text-sm font-bold flex items-center gap-1.5 shadow-inner">
                   <span className="text-purple-400">👾 Glitches Earned:</span>
-                  <span className="text-white font-black">+{Math.floor(totalScore / 10) + (level * 10)}</span>
+                  <span className="text-white font-black">+{Math.floor(totalScore / 10) + (rewardLevelMultiplier * 10)}</span>
                   <span className="text-yellow-300 ml-auto">Max Streak: {maxStreak}</span>
                 </div>
 
-                {level < FINAL_LEVEL_ID ? (
+                {runMode === "campaign" && level < FINAL_LEVEL_ID ? (
                   <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                     <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
                       START LEVEL {level + 1}
@@ -3858,7 +6596,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       Share Run
                     </button>
                   </div>
-                ) : (
+                ) : runMode === "campaign" ? (
                   <div className="text-center md:text-left bg-slate-900/50 p-6 rounded-2xl border border-slate-700/50 w-full">
                     <p className="text-3xl font-black text-yellow-400 mb-6 drop-shadow-[0_0_10px_rgba(250,204,21,0.5)]">
                       You beat the entire game!
@@ -3867,6 +6605,23 @@ Can you beat my score? Play ThinkFastBlast!`;
                       Main Menu
                     </button>
                     <button type="button" onClick={handleShare} className="ml-3 bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform border border-cyan-500/40">
+                      Share
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex w-full flex-wrap gap-3 rounded-2xl border border-slate-700/50 bg-slate-900/50 p-5">
+                    {runMode === "daily" && (
+                      <p className="w-full text-sm font-bold text-amber-200">
+                        Daily streak: {stats.dailyStreak || 1} day{(stats.dailyStreak || 1) === 1 ? "" : "s"} · Best {Math.max(stats.dailyBest || 0, totalScore)}
+                      </p>
+                    )}
+                    <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
+                      Play Again
+                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
+                      Main Menu
+                    </button>
+                    <button type="button" onClick={handleShare} className="bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 px-6 rounded-full border border-cyan-500/40">
                       Share
                     </button>
                   </div>
@@ -3884,28 +6639,28 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </h2>
                 <div className="bg-slate-900/60 p-3 md:p-6 rounded-2xl border border-slate-700/50 mb-4 md:mb-6 w-full text-center md:text-left shadow-inner">
                   <p className="text-base md:text-xl text-slate-300 mb-1 font-bold">
-                    {misses >= STRIKES_ALLOWED 
-                      ? "You ran out of recovery options!" 
-                      : questionIndex >= shuffledQuestions.length - 1 
-                        ? "Ran out of trivia questions!" 
+                    {misses >= strikeLimit
+                      ? "You ran out of recovery options!"
+                      : questionIndex >= shuffledQuestions.length - 1
+                        ? "Ran out of trivia questions!"
                         : "The board filled up to the top!"}
                   </p>
                   <p className="text-2xl md:text-3xl text-cyan-400 font-black mt-2">
                     Final Points: {totalScore}
                   </p>
-                  
+
                   <div className="mt-3 text-xs font-black text-purple-400 flex items-center gap-1.5 justify-center md:justify-start">
                     <span>👾 Glitches Earned:</span>
                     <span className="text-white bg-slate-950/60 px-2 py-0.5 rounded border border-purple-500/20">
-                      +{Math.max(1, Math.floor(totalScore / 20) + (level * 2))}
+                      +{Math.max(1, Math.floor(totalScore / 20) + (rewardLevelMultiplier * 2))}
                     </span>
                     <span className="text-yellow-300 ml-2">Max Streak: {maxStreak}</span>
                   </div>
                 </div>
-                
+
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                   <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
-                    RESTART LEVEL {level}
+                    {runMode === "campaign" ? `RESTART LEVEL ${level}` : "TRY AGAIN"}
                   </button>
                   <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
                     Main Menu
