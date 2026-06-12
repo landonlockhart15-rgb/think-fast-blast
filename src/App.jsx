@@ -53,6 +53,7 @@ import {
   writeScopedValue,
 } from "./game/profileStore";
 import Confetti from "./game/Confetti";
+import OnlineArena from "./game/OnlineArenaView";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
 const RECENT_QUESTIONS_STORAGE_KEY = "think-fast-blast-recent-questions";
@@ -2547,6 +2548,19 @@ Can you beat my score? Play ThinkFastBlast!`;
     setGameState("arena_intro");
   }, [customQuestions]);
 
+  const startOnlineArena = useCallback(() => {
+    playSFX("button");
+    setArenaMode("online");
+    setShuffledQuestions(buildQuestionDeck({
+      level: arenaLevel,
+      banks: { ...QUESTION_BANKS, 99: customQuestions },
+      recentIds: readRecentQuestionIds(),
+      size: 60,
+      seed: `online-arena-${arenaLevel}-${Date.now()}`,
+    }));
+    setGameState("online_arena");
+  }, [arenaLevel, customQuestions]);
+
   // Floor rising hazard
   const triggerFloorRise = useCallback((currentBoard) => {
     const newRow = Array(BOARD_WIDTH).fill(null);
@@ -4286,6 +4300,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const animatedScore = useAnimatedNumber(totalScore);
   const winStars = misses === 0 ? 3 : misses === 1 ? 2 : 1;
   const isArena = ["arena_quiz", "arena_dropping", "arena_resolving"].includes(gameState);
+  const isOnlineArena = gameState === "online_arena";
   const nearWin = totalScore >= runTarget - 60 && totalScore < runTarget && PLAYABLE_STATES.has(gameState);
   const rewardLevelMultiplier = runMode === "campaign" ? level : 5;
 
@@ -4528,6 +4543,19 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-7xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
 
+        {isOnlineArena && (
+          <OnlineArena
+            activeProfile={activeProfile}
+            arenaLevel={arenaLevel}
+            questions={shuffledQuestions}
+            playSFX={playSFX}
+            onExit={() => {
+              setGameState("start");
+              setMenuTab("arena");
+            }}
+          />
+        )}
+
         {/* Arena VS Gameplay view */}
         {isArena && (
           <div className="arena-shell w-full max-w-6xl flex flex-col items-center justify-start min-h-0 z-10 flex-1">
@@ -4552,12 +4580,25 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
               <div className="text-right">
-                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Win Target</span>
-                <span className="block text-sm font-black text-white">{WIN_SCORE_TARGET} Pts</span>
+                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
+                  {arenaMode === "vs_ai" ? "AI Score" : "Win Target"}
+                </span>
+                <span className="block text-sm font-black text-white">
+                  {arenaMode === "vs_ai" ? `${totalScore2}/${WIN_SCORE_TARGET}` : `${WIN_SCORE_TARGET} Pts`}
+                </span>
+                {arenaMode === "vs_ai" && (
+                  <span className="block text-[9px] font-bold text-fuchsia-300">
+                    {gameState === "arena_quiz" && p2Answered === null && "Analyzing..."}
+                    {gameState === "arena_quiz" && p2Answered === "correct" && "Answered correctly"}
+                    {gameState === "arena_quiz" && p2Answered === "wrong" && "Missed the question"}
+                    {gameState === "arena_dropping" && "Placing block"}
+                    {gameState === "arena_resolving" && "Resolving board"}
+                  </span>
+                )}
               </div>
             </header>
 
-            <div className="arena-board-grid flex-1 w-full min-h-0 grid grid-cols-2 gap-3 sm:gap-6 items-stretch mb-2">
+            <div className={`arena-board-grid flex-1 w-full min-h-0 grid gap-3 sm:gap-6 items-stretch mb-2 ${arenaMode === "vs_ai" ? "grid-cols-1 arena-board-grid-solo" : "grid-cols-2"}`}>
               <section className="flex flex-col items-center min-h-0 relative" aria-label="Player 1 Board">
                 <div className="w-full flex justify-between items-center mb-1.5 px-3 py-1 bg-slate-900/80 rounded-lg text-xs font-bold border border-slate-800 shadow-lg">
                   <span className="text-cyan-300">P1: <span className="text-sm font-black">{totalScore}</span><span className="text-slate-500">/500</span></span>
@@ -4570,7 +4611,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? "animate-shake" : ""} ${correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? "animate-shake" : ""} ${correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -4621,7 +4662,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
               </section>
 
-              <section className="flex flex-col items-center min-h-0 relative" aria-label="Player 2 Board">
+              <section className={arenaMode === "vs_ai" ? "hidden" : "flex flex-col items-center min-h-0 relative"} aria-label="Player 2 Board">
                 <div className="w-full flex justify-between items-center mb-1.5 px-3 py-1 bg-slate-900/80 rounded-lg text-xs font-bold border border-slate-800 shadow-lg">
                   <span className="text-fuchsia-300">P2: <span className="text-sm font-black">{totalScore2}</span><span className="text-slate-500">/500</span></span>
                   {correctStreak2 >= 3 && <span className="text-yellow-400 font-black animate-pulse">🔥 x{correctStreak2}</span>}
@@ -4738,7 +4779,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               </section>
             </div>
 
-            <div className="arena-control-grid w-full grid grid-cols-2 gap-4 shrink-0 min-h-[140px] items-stretch">
+            <div className={`arena-control-grid w-full grid gap-4 shrink-0 min-h-[140px] items-stretch ${arenaMode === "vs_ai" ? "grid-cols-1 arena-control-grid-solo" : "grid-cols-2"}`}>
               <div className="bg-slate-900/60 rounded-xl p-2 border border-slate-850 flex flex-col justify-center items-center text-center">
                 {gameState === "arena_quiz" && currentQuestion ? (
                   p1Answered === null ? (
@@ -4793,7 +4834,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 )}
               </div>
 
-              <div className="bg-slate-900/60 rounded-xl p-2 border border-slate-850 flex flex-col justify-center items-center text-center">
+              <div className={arenaMode === "vs_ai" ? "hidden" : "bg-slate-900/60 rounded-xl p-2 border border-slate-850 flex flex-col justify-center items-center text-center"}>
                 {arenaMode === "vs_ai" ? (
                   <div className="flex flex-col items-center justify-center py-2 h-full text-center">
                     <span className="text-2xl animate-bounce mb-0.5">🤖</span>
@@ -4954,7 +4995,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         )}
 
         {/* Playable Game Grid View */}
-        {!isMenu && gameState !== "intro" && !isArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
+        {!isMenu && gameState !== "intro" && !isArena && !isOnlineArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
           <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
             <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
               <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{runTarget}</span></span>
@@ -5422,7 +5463,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     🔮 The Blast Arena
                   </h2>
                   <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                    Compete in split-screen quiz battles against local players or AI bots
+                    Battle AI on a full board or connect 2-4 devices for true multiplayer
                   </p>
                 </div>
                 <button
@@ -5438,7 +5479,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <div className="flex-1 space-y-5 text-left bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
                   <div>
                     <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2">1. Select Mode</h3>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => { playSFX("button"); setArenaMode("vs_ai"); }}
@@ -5462,6 +5503,18 @@ Can you beat my score? Play ThinkFastBlast!`;
                       >
                         <span className="text-2xl mb-1">🎮</span>
                         Local 1v1
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { playSFX("button"); setArenaMode("online"); }}
+                        className={`py-3 px-2 rounded-xl text-sm font-black uppercase transition-all flex flex-col items-center justify-center border ${
+                          arenaMode === "online"
+                            ? "bg-cyan-600 border-cyan-300 text-white shadow-[0_0_12px_rgba(34,211,238,0.35)] scale-[1.02]"
+                            : "bg-slate-900 border-slate-800 text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <span className="text-2xl mb-1">🌐</span>
+                        Online 2-4
                       </button>
                     </div>
                   </div>
@@ -5495,10 +5548,14 @@ Can you beat my score? Play ThinkFastBlast!`;
 
                   <div>
                     <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2">
-                      {arenaMode === "vs_player" ? "2. Local Split Controls" : "3. Local Controls"}
+                      {arenaMode === "online" ? "2. Cross-Device Play" : arenaMode === "vs_player" ? "2. Local Split Controls" : "3. Local Controls"}
                     </h3>
                     <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-[11px] font-semibold text-slate-300 leading-relaxed space-y-1.5">
-                      <div><strong className="text-cyan-300">P1 (Left):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">1</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">4</kbd> to answer · <kbd className="bg-slate-800 text-white px-1 rounded">W/A/S/D</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Space</kbd> drop</div>
+                      {arenaMode === "online" ? (
+                        <div><strong className="text-cyan-300">Room Codes:</strong> Create a room, share the 6-character code, and join from up to four phones or computers. Each device shows one full-size board.</div>
+                      ) : (
+                        <div><strong className="text-cyan-300">P1 (Left):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">1</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">4</kbd> to answer · <kbd className="bg-slate-800 text-white px-1 rounded">W/A/S/D</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Space</kbd> drop</div>
+                      )}
                       {arenaMode === "vs_player" && (
                         <div><strong className="text-fuchsia-300">P2 (Right):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">7</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">0</kbd> (or <kbd className="bg-slate-800 text-white px-1 rounded">U/I/O/P</kbd>) to answer · <kbd className="bg-slate-800 text-white px-1 rounded">Arrows</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Enter</kbd> drop</div>
                       )}
@@ -5508,7 +5565,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
                 <div className="flex-1 flex flex-col min-h-0 bg-slate-900/40 p-4 rounded-2xl border border-slate-700/30">
                   <h3 className="text-xs font-black text-purple-300 uppercase tracking-widest mb-2 text-left">
-                    {arenaMode === "vs_player" ? "3. Select Trivia Pack" : "4. Select Trivia Pack"}
+                    {arenaMode === "online" ? "3. Select Trivia Pack" : arenaMode === "vs_player" ? "3. Select Trivia Pack" : "4. Select Trivia Pack"}
                   </h3>
                   <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
                     {LEVELS.map((lvl) => (
@@ -5558,10 +5615,12 @@ Can you beat my score? Play ThinkFastBlast!`;
               <div className="mt-4 pt-3 border-t border-slate-700/50 shrink-0">
                 <button
                   type="button"
-                  onClick={() => startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
+                  onClick={() => arenaMode === "online"
+                    ? startOnlineArena()
+                    : startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
                   className="w-full bg-gradient-to-r from-purple-600 to-rose-500 hover:from-purple-500 hover:to-rose-400 text-white font-black py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(168,85,247,0.35)] hover:scale-[1.01] transition-transform text-sm font-black uppercase tracking-widest text-center"
                 >
-                  🔥 START ARENA DUEL
+                  {arenaMode === "online" ? "🌐 OPEN ONLINE LOBBY" : "🔥 START ARENA DUEL"}
                 </button>
               </div>
             </div>

@@ -26,6 +26,8 @@ drop heavy stone blocks and push the board closer to disaster.
 - Mobile, tablet, and desktop layouts
 - Touch, swipe, and keyboard controls
 - Combo streaks, special blocks, board hazards, and recovery moments
+- Blast Arena AI matches with one full-size human board
+- 2-4 player cross-device rooms with shared codes and reconnect snapshots
 - Web Audio music and sound effects with persistent volume controls
 - Local progress, unlocks, high scores, and run stats
 - Netlify-ready Vite production build
@@ -36,6 +38,7 @@ drop heavy stone blocks and push the board closer to disaster.
 - Vite
 - Tailwind CSS
 - Web Audio API
+- Supabase Realtime Broadcast and Presence
 - Node test runner
 
 ## Run Locally
@@ -76,5 +79,7 @@ src/data/questions.js   Level question banks
 src/game/audio.js       Web Audio music and sound effects
 src/game/board.js       Board creation, collision, shuffle, rotation helpers
 src/game/board.test.js  Core board mechanics tests
+src/game/onlineArena.js Cross-device arena board and room helpers
+src/game/OnlineArenaView.jsx Online room, presence, and match UI
 src/index.css           Tailwind entry, animations, and responsive game styles
 ```
