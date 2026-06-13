@@ -14,7 +14,7 @@ Answer trivia to earn control of falling pieces. Correct answers let you place
 blocks strategically, build streaks, and unlock special pieces. Wrong answers
 drop heavy stone blocks and push the board closer to disaster.
 
-- Clear a level by reaching 500 points.
+- Clear a level by reaching its displayed score target and completing its displayed mission.
 - Survive with fewer than three strikes.
 - Build streaks to trigger TNT, drill, and lightning power pieces.
 - Score through quick answers, color matches, line clears, and special blasts.
@@ -69,6 +69,20 @@ The project is configured for Netlify:
 Production deploys live at:
 
 https://thinkfastblast.netlify.app
+
+## Android APK
+
+Download the latest signed Android APK from the
+[GitHub Releases page](https://github.com/landonlockhart15-rgb/think-fast-blast/releases/latest).
+
+The Android app uses Capacitor. To build it locally:
+
+```powershell
+npm run android:apk
+```
+
+The debug APK is written to
+`android/app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Project Structure
 

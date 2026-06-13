@@ -1,0 +1,9 @@
+{
+  "appId": "com.landonlockhart.thinkfastblast",
+  "appName": "Think Fast Blast",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#050a30"
+  }
+}

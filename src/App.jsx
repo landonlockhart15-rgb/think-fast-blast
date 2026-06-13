@@ -42,10 +42,14 @@ import {
   buildQuestionDeck,
   getDailyChallengeKey,
 } from "./game/questionDeck";
+import { getArenaAiTurn } from "./game/arenaAi";
+import { advanceAiRace, createAiRaceMetrics } from "./game/aiRace";
+import { applyBoardPower, BOARD_POWERS } from "./game/boardPowers";
 import {
   createProfile,
   deleteProfile,
   getActiveProfileId,
+  MAX_PROFILES,
   readProfiles,
   readScopedValue,
   setActiveProfileId as persistActiveProfileId,
@@ -58,9 +62,42 @@ import OnlineArena from "./game/OnlineArenaView";
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
 const RECENT_QUESTIONS_STORAGE_KEY = "think-fast-blast-recent-questions";
 const PLAYABLE_STATES = new Set(["quiz", "dropping", "transition", "resolving", "strike_recovery", "arena_quiz", "arena_dropping", "arena_resolving"]);
+const LEVEL_INTRO_SECONDS = 5;
 const FLASH_DURATION_MS = 260;
+const AI_THINKING_LINES = [
+  "Reading the question. Revolutionary technology.",
+  "Consulting my extremely modest genius.",
+  "Thinking... unlike a loading spinner with confidence.",
+  "Running the numbers. Also judging the punctuation.",
+];
+const AI_PLAYER_WINS_LINES = [
+  "Okay, that was fast. Suspiciously respectable.",
+  "Nice answer. I definitely let you have that one.",
+  "Point to you. My dramatic comeback remains scheduled.",
+  "Well played. Please stop making me update my excuses.",
+];
+const AI_BOT_WINS_LINES = [
+  "Beep boop. I knew that one before it was cool.",
+  "Too slow, carbon-based challenger.",
+  "That point is mine. I will display it tastefully.",
+  "Quick circuits, quicker answer. No hard feelings.",
+];
+const AI_MISS_LINES = [
+  "I meant to test your confidence. You passed.",
+  "My calculator says that was character development.",
+  "A tactical error. Very tactical. Extremely error.",
+  "Nobody screenshot that.",
+];
 
 const SHOP_ITEMS = [
+  ...Object.entries(BOARD_POWERS).map(([id, power]) => ({
+    id,
+    name: power.name,
+    desc: `${power.description} Usable once per level after purchase.`,
+    cost: power.cost,
+    type: "power",
+    emoji: power.emoji,
+  })),
   { id: "theme_cyberpunk", name: "Cyberpunk Neon Theme", desc: "Adds glowing retro-future styling and cyber shadows to blocks", cost: 100, type: "theme" },
   { id: "theme_retro", name: "Retro Green Theme", desc: "Classic Matrix-style digital terminal grid with binary elements", cost: 120, type: "theme" },
   { id: "catalyst_bomb", name: "Catalyst Bomb Block", desc: "Enables rare 💣 block spawns that clear 3x3 grids when they land", cost: 150, type: "block" },
@@ -168,6 +205,15 @@ const saveProgress = (level) => {
   }
 };
 
+const readProfileProgress = (profileId) => {
+  try {
+    const saved = Number.parseInt(readScopedValue(PROGRESS_STORAGE_KEY, undefined, profileId), 10);
+    return Number.isFinite(saved) ? Math.min(Math.max(saved, 1), FINAL_LEVEL_ID) : 1;
+  } catch {
+    return 1;
+  }
+};
+
 // -------------------------------------------------------------------------
 // Interactive Previews for the Shop Cards
 // -------------------------------------------------------------------------
@@ -199,6 +245,13 @@ const PROFILE_AVATARS = ["⚡", "🚀", "🧠", "🎮", "🌈", "🔥", "👾", 
 
 const ONBOARDING_STEPS = [
   {
+    kind: "profile",
+    eyebrow: "Create Your Gamer Profile",
+    title: "Who is playing?",
+    body: "Choose a name, avatar, difficulty, and the campaign level where this player wants to begin.",
+    icon: "🎮",
+  },
+  {
     eyebrow: "Think Fast",
     title: "Answer before the block lands",
     body: "Correct answers give you control. Fast answers build score, streak energy, and stronger special blocks.",
@@ -213,7 +266,7 @@ const ONBOARDING_STEPS = [
   {
     eyebrow: "Blast Big",
     title: "Streaks forge powerful pieces",
-    body: "TNT arrives at x3, the Drill at x5, and Lightning at x7. Every level also has its own mission.",
+    body: "TNT arrives at x3, the Drill at x5, and Lightning at x7. To win, complete both the score target and the level mission shown on screen.",
     icon: "⚡",
   },
 ];
@@ -311,6 +364,7 @@ function QuickAnswerTimer({ startTime, active, windowSeconds = 2.2 }) {
 
 function StoreItemPreview({ itemId }) {
   const canvasRef = useRef(null);
+  const power = BOARD_POWERS[itemId];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -604,6 +658,14 @@ function StoreItemPreview({ itemId }) {
     return () => cancelAnimationFrame(frameId);
   }, [itemId]);
 
+  if (power) {
+    return (
+      <div className={`store-power-preview store-power-preview-${power.effect}`} aria-hidden="true">
+        <span>{power.emoji}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="w-[120px] h-[120px] shrink-0 border border-slate-700/60 rounded-xl overflow-hidden shadow-inner bg-slate-900 flex items-center justify-center relative">
       <canvas ref={canvasRef} className="w-[120px] h-[120px]" />
@@ -717,6 +779,10 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
       banana: { colors: ["#fef9c3", "#fde047", "#facc15", "#ffffff"], count: 18, speed: 6, gravity: 0.04, kind: "spark" },
       line: { colors: ["#ffffff", "#22d3ee", "#a855f7"], count: 14, speed: 4.2, gravity: 0.04, kind: "spark" },
       match: { colors: ["#22d3ee", "#f59e0b", "#a855f7"], count: 12, speed: 3.8, gravity: 0.07, kind: "orb" },
+      tornado: { colors: ["#e0f2fe", "#7dd3fc", "#94a3b8"], count: 18, speed: 7.5, gravity: -0.12, kind: "debris" },
+      earthquake: { colors: ["#fde68a", "#a16207", "#78350f"], count: 22, speed: 5.2, gravity: 0.22, kind: "shard" },
+      fire: { colors: ["#fef3c7", "#facc15", "#f97316", "#dc2626"], count: 22, speed: 5.8, gravity: -0.08, kind: "orb" },
+      flood: { colors: ["#e0f2fe", "#38bdf8", "#2563eb", "#ffffff"], count: 20, speed: 6.4, gravity: 0.12, kind: "orb" },
     };
     const style = styles[effectType] || styles.match;
 
@@ -893,9 +959,9 @@ function RunTelemetryPanel({
                 : "Stone";
 
   const meters = [
-    { label: "Score Run", value: `${totalScore}/${targetScore}`, progress: targetProgress, tone: "cyan" },
+    { label: "Score Required", value: `${totalScore}/${targetScore}`, progress: targetProgress, tone: "cyan" },
     {
-      label: "Mission",
+      label: "Mission Required",
       value: `${objectiveStatus.current}/${objectiveStatus.required}`,
       progress: objectiveStatus.progress,
       tone: objectiveStatus.complete ? "emerald" : "purple",
@@ -943,7 +1009,7 @@ function RunTelemetryPanel({
         </div>
       ))}
       <p className="col-span-2 text-center text-[10px] font-black uppercase tracking-widest text-purple-300">
-        Mission: {objective.label}
+        Win requires both goals · Mission: {objective.label}
       </p>
     </div>
   );
@@ -960,14 +1026,30 @@ function MenuLightfield() {
   );
 }
 
+const createPreviewBoard = () => {
+  const board = createEmptyBoard();
+  const colors = ["bg-cyan-500", "bg-purple-500", "bg-green-500", "bg-red-500"];
+  const pattern = [
+    [1, 1, 0, 2, 2, 2, 0, 3, 3, 1],
+    [1, 0, 0, 2, 0, 2, 3, 3, 0, 1],
+    [0, 0, 1, 1, 0, 2, 3, 0, 0, 0],
+  ];
+  pattern.forEach((row, offset) => {
+    row.forEach((colorIndex, x) => {
+      if (colorIndex) board[BOARD_HEIGHT - pattern.length + offset][x] = { color: colors[colorIndex - 1] };
+    });
+  });
+  return board;
+};
+
 function MenuPreviewBoard() {
-  const [simBoard, setSimBoard] = useState(() => createEmptyBoard());
+  const [simBoard, setSimBoard] = useState(createPreviewBoard);
   const [simPiece, setSimPiece] = useState(null);
 
   useEffect(() => {
     let active = true;
     let piece = null;
-    let boardState = createEmptyBoard();
+    let boardState = createPreviewBoard();
 
     const localRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -988,7 +1070,7 @@ function MenuPreviewBoard() {
       if (!piece) {
         piece = spawn();
         if (checkCollision(piece, boardState)) {
-          boardState = createEmptyBoard();
+          boardState = createPreviewBoard();
           piece = spawn();
         }
         setSimBoard(boardState.map(row => [...row]));
@@ -1164,13 +1246,12 @@ function MenuPreviewBoard() {
       <div className="menu-preview-grid">
         {displayBoard.map((row, y) =>
           row.map((cell, x) => (
-            <div key={`${y}-${x}`} className={`menu-preview-cell ${cell ? cell.color : ""}`}>
+            <div key={`${y}-${x}`} className={`menu-preview-cell ${cell ? `menu-preview-cell-filled ${cell.color}` : ""}`}>
               {cell?.emoji || ""}
             </div>
           ))
         )}
       </div>
-      <div className="menu-preview-label">LIVE RUN SIM</div>
     </div>
   );
 }
@@ -1277,9 +1358,21 @@ export default function App() {
     () => activeProfile?.difficulty || "normal"
   );
   const [showOnboarding, setShowOnboarding] = useState(
-    () => !activeProfile?.onboardingComplete
+    () => !activeProfile?.profileSetupComplete || !activeProfile?.onboardingComplete
   );
   const [onboardingStep, setOnboardingStep] = useState(0);
+  const [onboardingNameDraft, setOnboardingNameDraft] = useState(
+    () => activeProfile?.name === "Player 1" ? "" : activeProfile?.name || ""
+  );
+  const [onboardingAvatarDraft, setOnboardingAvatarDraft] = useState(
+    () => activeProfile?.avatar || "⚡"
+  );
+  const [onboardingDifficultyDraft, setOnboardingDifficultyDraft] = useState(
+    () => activeProfile?.difficulty || "normal"
+  );
+  const [onboardingStartLevel, setOnboardingStartLevel] = useState(
+    () => activeProfile?.startingLevel || readSavedProgress()
+  );
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [profileAvatarDraft, setProfileAvatarDraft] = useState("🚀");
   const [runMode, setRunMode] = useState("campaign");
@@ -1302,6 +1395,7 @@ export default function App() {
   const [feedback, setFeedback] = useState("");
   const [explodingCells, setExplodingCells] = useState([]);
   const [blastEffect, setBlastEffect] = useState("match");
+  const [usedPowers, setUsedPowers] = useState([]);
 
   // Immersion & volume settings states
   const [maxStreak, setMaxStreak] = useState(0);
@@ -1347,6 +1441,12 @@ export default function App() {
   const [explodingCells2, setExplodingCells2] = useState([]);
   const [floatingTexts2, setFloatingTexts2] = useState([]);
   const [shake2, setShake2] = useState(false);
+  const [aiQuip, setAiQuip] = useState(AI_THINKING_LINES[0]);
+  const [aiThinkingStage, setAiThinkingStage] = useState("reading");
+  const [aiRaceMetrics, setAiRaceMetrics] = useState(createAiRaceMetrics);
+  const aiRaceTimerRef = useRef(0);
+  const aiRaceAnsweredQuestionRef = useRef(-1);
+  const handleArenaAnswerRef = useRef(null);
 
   // Custom Question Builder States
   const [customQuestions, setCustomQuestions] = useState(() => {
@@ -1645,7 +1745,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Stats and Shop Integration States
   const [stats, setStats] = useState(readSavedStats);
-  const [introCountdown, setIntroCountdown] = useState(3);
+  const [introCountdown, setIntroCountdown] = useState(LEVEL_INTRO_SECONDS);
   const [scoreBump, setScoreBump] = useState(false);
   const prevScoreRef = useRef(0);
   const coinTickRef = useRef(0);
@@ -1772,6 +1872,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     saveProgress(maxUnlockedLevel);
   }, [maxUnlockedLevel]);
 
+  const prepareOnboardingDrafts = useCallback((profile, savedLevel = 1) => {
+    setOnboardingNameDraft(profile?.name?.startsWith("Player ") ? "" : profile?.name || "");
+    setOnboardingAvatarDraft(profile?.avatar || "⚡");
+    setOnboardingDifficultyDraft(profile?.difficulty || "normal");
+    setOnboardingStartLevel(profile?.startingLevel || savedLevel || 1);
+  }, []);
+
   const handleProfileSwitch = useCallback((profileId) => {
     const nextProfile = profiles.find((profile) => profile.id === profileId);
     if (!nextProfile || nextProfile.id === activeProfileId) return;
@@ -1779,15 +1886,16 @@ Can you beat my score? Play ThinkFastBlast!`;
     persistActiveProfileId(profileId);
     setActiveProfileId(profileId);
     setDifficultyMode(nextProfile.difficulty || "normal");
-    setShowOnboarding(!nextProfile.onboardingComplete);
+    setShowOnboarding(!nextProfile.profileSetupComplete || !nextProfile.onboardingComplete);
     setOnboardingStep(0);
+    prepareOnboardingDrafts(nextProfile, readSavedProgress());
     setStats(readSavedStats());
     setMaxUnlockedLevel(readSavedProgress());
     earnedRef.current = null;
     setGameState("start");
     setMenuTab("levels");
     playSFX("theme");
-  }, [profiles, activeProfileId]);
+  }, [profiles, activeProfileId, prepareOnboardingDrafts]);
 
   const handleDifficultyChange = useCallback((difficultyId) => {
     if (!DIFFICULTY_PRESETS[difficultyId]) return;
@@ -1809,12 +1917,41 @@ Can you beat my score? Play ThinkFastBlast!`;
     playSFX("unlock");
   }, [activeProfileId]);
 
+  const saveOnboardingProfile = useCallback(() => {
+    const name = onboardingNameDraft.trim() || activeProfile?.name || "Player";
+    const nextStartingLevel = Math.min(Math.max(onboardingStartLevel, 1), FINAL_LEVEL_ID);
+    const updated = updateProfile(activeProfileId, {
+      name,
+      avatar: onboardingAvatarDraft,
+      difficulty: onboardingDifficultyDraft,
+      startingLevel: nextStartingLevel,
+      profileSetupComplete: true,
+    });
+    const unlockedLevel = Math.max(readSavedProgress(), nextStartingLevel);
+    setProfiles((current) =>
+      current.map((profile) => profile.id === updated.id ? updated : profile)
+    );
+    setDifficultyMode(onboardingDifficultyDraft);
+    setMaxUnlockedLevel(unlockedLevel);
+    saveProgress(unlockedLevel);
+    playSFX("unlock");
+  }, [
+    activeProfile?.name,
+    activeProfileId,
+    onboardingAvatarDraft,
+    onboardingDifficultyDraft,
+    onboardingNameDraft,
+    onboardingStartLevel,
+  ]);
+
   const handleCreateProfile = useCallback(() => {
+    if (profiles.length >= MAX_PROFILES) return;
     const created = createProfile({
       name: profileNameDraft,
       avatar: profileAvatarDraft,
       difficulty: "normal",
     });
+    if (!created) return;
     const nextProfiles = readProfiles();
     setProfiles(nextProfiles);
     setProfileNameDraft("");
@@ -1823,11 +1960,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     setDifficultyMode(created.difficulty);
     setShowOnboarding(true);
     setOnboardingStep(0);
+    prepareOnboardingDrafts(created, 1);
     setStats(readSavedStats());
     setMaxUnlockedLevel(readSavedProgress());
     earnedRef.current = null;
     playSFX("unlock");
-  }, [profileNameDraft, profileAvatarDraft]);
+  }, [profileNameDraft, profileAvatarDraft, profiles.length, prepareOnboardingDrafts]);
 
   const handleDeleteProfile = useCallback((profileId) => {
     if (profiles.length <= 1) return;
@@ -1838,13 +1976,15 @@ Can you beat my score? Play ThinkFastBlast!`;
       setActiveProfileId(nextId);
       const nextProfile = remaining.find((profile) => profile.id === nextId) || remaining[0];
       setDifficultyMode(nextProfile.difficulty || "normal");
-      setShowOnboarding(!nextProfile.onboardingComplete);
+      setShowOnboarding(!nextProfile.profileSetupComplete || !nextProfile.onboardingComplete);
+      setOnboardingStep(0);
+      prepareOnboardingDrafts(nextProfile, readSavedProgress());
       setStats(readSavedStats());
       setMaxUnlockedLevel(readSavedProgress());
       earnedRef.current = null;
     }
     playSFX("button");
-  }, [profiles.length, activeProfileId]);
+  }, [profiles.length, activeProfileId, prepareOnboardingDrafts]);
 
   // Handle programmatic audio enabled state
   useEffect(() => {
@@ -1937,6 +2077,34 @@ Can you beat my score? Play ThinkFastBlast!`;
     }, 900);
   }, []);
 
+  const activateBoardPower = useCallback((powerId) => {
+    const power = BOARD_POWERS[powerId];
+    const current = stateRef.current;
+    if (!power || usedPowers.includes(powerId) || !stats.unlockedItems.includes(powerId)) return;
+    if (current.gameState !== "quiz" || current.isPaused) return;
+
+    const result = applyBoardPower(current.board, powerId);
+    if (!result.cleared) {
+      pushToast({ kind: "info", emoji: "✓", title: "Board Clear", desc: "Save that power for when blocks are stacked." });
+      return;
+    }
+
+    setUsedPowers((used) => [...used, powerId]);
+    setBlastEffect(power.effect);
+    setExplodingCells(result.cells);
+    triggerShake();
+    triggerFlash(powerId === "power_fire" ? "danger" : "blast");
+    vibrate([30, 35, 60]);
+    addFloatingText(`${power.emoji} ${power.name.toUpperCase()} · ${result.cleared} BLOCKS`, 4, 8);
+    playSFX(powerId === "power_earthquake" ? "harddrop" : "explosion");
+
+    window.setTimeout(() => {
+      setBoard(result.board);
+      setExplodingCells([]);
+      setTotalScore((score) => score + result.cleared * 2);
+    }, reduceMotion ? 120 : 520);
+  }, [addFloatingText, pushToast, reduceMotion, stats.unlockedItems, triggerFlash, triggerShake, usedPowers, vibrate]);
+
   // Helper to generate a Power-up block
   const makePowerUp = (piece, streak) => {
     if (streak === 3) {
@@ -1971,6 +2139,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Memoized game end handler to save stats, high scores, glitches and trigger audio
   const handleGameEnd = useCallback((isWin, finalScore) => {
+    window.clearTimeout(aiRaceTimerRef.current);
     setIsPaused(false);
     const savedSnapshot = readSavedStats();
     const completedRunMetrics = stateRef.current.runMetrics || runMetrics;
@@ -2008,6 +2177,11 @@ Can you beat my score? Play ThinkFastBlast!`;
     };
 
     if (isWin) {
+      if (runMode === "ai_race") {
+        setArenaResult("p1_win");
+        setAiQuip("Good game. I demand a rematch and possibly newer hardware.");
+        unlockAchievement("arena");
+      }
       playSFX("level_win");
       triggerFlash("win");
       setGameState("level_win");
@@ -2051,6 +2225,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             ? Math.max(prevStats.dailyBest || 0, finalScore)
             : prevStats.dailyBest || 0,
           levelsWon: (prevStats.levelsWon || 0) + 1,
+          arenaWins: (prevStats.arenaWins || 0) + Number(runMode === "ai_race"),
           totalLines: (prevStats.totalLines || 0) + completedRunMetrics.lines,
           totalMatches: (prevStats.totalMatches || 0) + completedRunMetrics.matches,
           totalFruits: (prevStats.totalFruits || 0) + completedRunMetrics.fruits,
@@ -2061,6 +2236,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       });
       setFeedback(`Victory! Earned ${glitchesEarned} Glitches.`);
     } else {
+      if (runMode === "ai_race") {
+        setArenaResult("ai_win");
+        setAiQuip("Good race. I will be humble about this for almost six seconds.");
+      }
       playSFX("gameover");
       triggerFlash("danger");
       setGameState("gameover");
@@ -2402,6 +2581,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     setP2Answered(null);
     setIsControllable(false);
     setIsControllable2(false);
+    if (stateRef.current.arenaMode === "vs_ai") {
+      setAiThinkingStage("reading");
+      setAiQuip(randomItem(AI_THINKING_LINES));
+    }
 
     setQuestionStartTime(Date.now());
   }, [handleArenaGameEnd]);
@@ -2424,6 +2607,10 @@ Can you beat my score? Play ThinkFastBlast!`;
         addFloatingText("CORRECT! ⚡", activePiece?.x || 5, activePiece?.y || 2);
 
         if (p2Answered === null) {
+          if (stateRef.current.arenaMode === "vs_ai") {
+            setAiThinkingStage("outplayed");
+            setAiQuip(randomItem(AI_PLAYER_WINS_LINES));
+          }
           setP2Answered("wrong");
           setIsControllable2(false);
           if (activePiece2) {
@@ -2460,6 +2647,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     } else {
       if (p2Answered !== null) return;
       if (correct) {
+        if (stateRef.current.arenaMode === "vs_ai") {
+          setAiThinkingStage("answered");
+          setAiQuip(randomItem(AI_BOT_WINS_LINES));
+        }
         setP2Answered("correct");
         playSFX("correct", correctStreak2 + 1);
         setCorrectStreak2(prev => prev + 1);
@@ -2483,6 +2674,10 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         setGameState("arena_dropping");
       } else {
+        if (stateRef.current.arenaMode === "vs_ai") {
+          setAiThinkingStage("missed");
+          setAiQuip(randomItem(AI_MISS_LINES));
+        }
         setP2Answered("wrong");
         playSFX("incorrect");
         setCorrectStreak2(0);
@@ -2503,6 +2698,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       }
     }
   }, [shuffledQuestions, p1Answered, p2Answered, correctStreak, correctStreak2, activePiece, activePiece2, addFloatingText, addFloatingText2]);
+  useEffect(() => {
+    handleArenaAnswerRef.current = handleArenaAnswer;
+  }, [handleArenaAnswer]);
 
   const startArenaMatch = useCallback((mode, diff, selectedLvl) => {
     playSFX("race_start");
@@ -2544,7 +2742,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setFloatingTexts([]);
     setFloatingTexts2([]);
 
-    setIntroCountdown(3);
+    setIntroCountdown(LEVEL_INTRO_SECONDS);
     setGameState("arena_intro");
   }, [customQuestions]);
 
@@ -3817,27 +4015,65 @@ Can you beat my score? Play ThinkFastBlast!`;
     const question = shuffledQuestions[questionIndex];
     if (!question) return undefined;
 
-    let delayRange = [2000, 4500];
-    let accuracy = 0.8;
-    if (aiDifficulty === "easy") {
-      delayRange = [3500, 5500];
-      accuracy = 0.62;
-    } else if (aiDifficulty === "hard") {
-      delayRange = [800, 1800];
-      accuracy = 0.94;
-    }
-
-    const delay = Math.random() * (delayRange[1] - delayRange[0]) + delayRange[0];
+    const { delay, accuracy } = getArenaAiTurn(
+      aiDifficulty,
+      totalScore,
+      totalScore2
+    );
+    const thinkingTimer = setTimeout(() => {
+      if (stateRef.current.gameState !== "arena_quiz" || stateRef.current.p2Answered !== null) return;
+      setAiThinkingStage("calculating");
+      setAiQuip("I have narrowed it down to one of the answers. Huge progress.");
+    }, Math.min(3600, delay * 0.48));
     const timer = setTimeout(() => {
       if (stateRef.current.isPaused || stateRef.current.gameState !== "arena_quiz") return;
 
       const isCorrect = Math.random() < accuracy;
       const answerIndex = isCorrect ? question.answer : (question.answer + 1) % 4;
-      handleArenaAnswer(2, answerIndex);
+      handleArenaAnswerRef.current?.(2, answerIndex);
     }, delay);
 
-    return () => clearTimeout(timer);
-  }, [gameState, arenaMode, questionIndex, aiDifficulty, shuffledQuestions, isPaused, p2Answered, handleArenaAnswer]);
+    return () => {
+      clearTimeout(thinkingTimer);
+      clearTimeout(timer);
+    };
+  }, [gameState, arenaMode, questionIndex, aiDifficulty, shuffledQuestions, isPaused, p2Answered, totalScore, totalScore2]);
+
+  // Byte races the same level independently while the player keeps the normal
+  // single-player question, board, controls, and objective flow.
+  useEffect(() => {
+    if (runMode !== "ai_race" || gameState !== "quiz" || isPaused) return;
+    const question = shuffledQuestions[questionIndex];
+    if (!question) return;
+    if (aiRaceAnsweredQuestionRef.current === questionIndex) return;
+    aiRaceAnsweredQuestionRef.current = questionIndex;
+
+    window.clearTimeout(aiRaceTimerRef.current);
+    setAiThinkingStage("reading");
+    setAiQuip(randomItem(AI_THINKING_LINES));
+    const { delay, accuracy } = getArenaAiTurn(
+      aiDifficulty,
+      totalScore,
+      aiRaceMetrics.score
+    );
+
+    aiRaceTimerRef.current = window.setTimeout(() => {
+      if (["level_win", "gameover", "start"].includes(stateRef.current.gameState)) return;
+      const correct = Math.random() < accuracy;
+      setAiRaceMetrics((current) => {
+        const result = advanceAiRace(current, runConfig, correct);
+        setAiThinkingStage(correct ? "answered" : "missed");
+        setAiQuip(randomItem(correct ? AI_BOT_WINS_LINES : AI_MISS_LINES));
+        if (result.complete) {
+          setArenaResult("ai_win");
+          window.setTimeout(() => handleGameEnd(false, stateRef.current.totalScore || 0), 250);
+        }
+        return result.metrics;
+      });
+    }, delay);
+  }, [runMode, gameState, isPaused, questionIndex, shuffledQuestions, aiDifficulty, totalScore, aiRaceMetrics.score, runConfig, handleGameEnd]);
+
+  useEffect(() => () => window.clearTimeout(aiRaceTimerRef.current), []);
 
   // AI Bot Steering Placement Loop
   useEffect(() => {
@@ -4239,7 +4475,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   // -------------------------------------------------------------------------
   // Level Initialization
   // -------------------------------------------------------------------------
-  const startLevel = useCallback((nextLevel) => {
+  const startLevel = useCallback((nextLevel, requestedMode) => {
     playSFX("button");
     setLevel(nextLevel);
     if (nextLevel === 98) {
@@ -4250,7 +4486,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         size: 30,
       }));
     } else {
-      setRunMode(nextLevel === 99 ? "custom" : "campaign");
+      setRunMode(requestedMode === "ai_race" ? "ai_race" : nextLevel === 99 ? "custom" : "campaign");
       setShuffledQuestions(buildQuestionDeck({
         level: nextLevel,
         banks: { ...QUESTION_BANKS, 99: customQuestions },
@@ -4273,6 +4509,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setFeedback("");
     setExplodingCells([]);
     setBlastEffect("match");
+    setUsedPowers([]);
     setFlashColor(null);
     setShareFeedback("");
 
@@ -4288,10 +4525,15 @@ Can you beat my score? Play ThinkFastBlast!`;
       specials: 0,
       questions: 0,
     });
+    setAiRaceMetrics(createAiRaceMetrics());
+    aiRaceAnsweredQuestionRef.current = -1;
+    setAiThinkingStage("reading");
+    setAiQuip(randomItem(AI_THINKING_LINES));
+    if (requestedMode === "ai_race") setArenaResult(null);
 
     const fact = TRIVIA_FACTS[Math.floor(Math.random() * TRIVIA_FACTS.length)];
     setRandomFact(fact);
-    setIntroCountdown(3);
+    setIntroCountdown(LEVEL_INTRO_SECONDS);
 
     setGameState("intro");
   }, [customQuestions]);
@@ -4302,6 +4544,9 @@ Can you beat my score? Play ThinkFastBlast!`;
   const isArena = ["arena_quiz", "arena_dropping", "arena_resolving"].includes(gameState);
   const isOnlineArena = gameState === "online_arena";
   const nearWin = totalScore >= runTarget - 60 && totalScore < runTarget && PLAYABLE_STATES.has(gameState);
+  const scoreGoalComplete = totalScore >= runTarget;
+  const waitingOnMission = scoreGoalComplete && !objectiveStatus.complete && PLAYABLE_STATES.has(gameState);
+  const aiRaceObjectiveStatus = getObjectiveStatus(runConfig, aiRaceMetrics);
   const rewardLevelMultiplier = runMode === "campaign" ? level : 5;
 
   const displayBoard = board.map((row) => [...row]);
@@ -4367,7 +4612,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   const panelClass = isMenu
     ? "w-full max-w-5xl h-full flex flex-col items-center justify-center text-center z-10"
-    : "w-full md:w-[58%] max-h-[43dvh] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-start md:justify-center text-center md:text-left relative overflow-y-auto md:overflow-hidden z-10";
+    : "gameplay-panel w-full md:w-[58%] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-start md:justify-center text-center md:text-left relative overflow-hidden z-10";
 
   return (
     <div className={`h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation ${reduceMotion ? "reduced-motion" : ""} ${highContrast ? "high-contrast" : ""}`}>
@@ -4385,31 +4630,120 @@ Can you beat my score? Play ThinkFastBlast!`;
                 />
               ))}
             </div>
-            <div className="onboarding-icon" aria-hidden="true">
-              {ONBOARDING_STEPS[onboardingStep].icon}
-            </div>
-            <p className="onboarding-eyebrow">{ONBOARDING_STEPS[onboardingStep].eyebrow}</p>
-            <h2 id="onboarding-title" className="onboarding-title">
-              {ONBOARDING_STEPS[onboardingStep].title}
-            </h2>
-            <p className="onboarding-copy">{ONBOARDING_STEPS[onboardingStep].body}</p>
+            {ONBOARDING_STEPS[onboardingStep].kind === "profile" ? (
+              <div className="onboarding-profile-setup">
+                <div className="onboarding-profile-heading">
+                  <div className="onboarding-profile-preview" aria-hidden="true">
+                    {onboardingAvatarDraft}
+                  </div>
+                  <div>
+                    <p className="onboarding-eyebrow">{ONBOARDING_STEPS[onboardingStep].eyebrow}</p>
+                    <h2 id="onboarding-title" className="onboarding-title">
+                      {ONBOARDING_STEPS[onboardingStep].title}
+                    </h2>
+                    <p className="onboarding-copy">{ONBOARDING_STEPS[onboardingStep].body}</p>
+                  </div>
+                </div>
+
+                <label className="onboarding-field">
+                  <span>Gamer Name</span>
+                  <input
+                    value={onboardingNameDraft}
+                    onChange={(event) => setOnboardingNameDraft(event.target.value.slice(0, 18))}
+                    maxLength={18}
+                    placeholder="Enter your name"
+                    autoComplete="nickname"
+                  />
+                </label>
+
+                <fieldset className="onboarding-choice-group">
+                  <legend>Choose Your Avatar</legend>
+                  <div className="onboarding-avatar-grid">
+                    {PROFILE_AVATARS.map((avatar) => (
+                      <button
+                        key={avatar}
+                        type="button"
+                        onClick={() => setOnboardingAvatarDraft(avatar)}
+                        className={onboardingAvatarDraft === avatar ? "profile-avatar-choice profile-avatar-choice-active" : "profile-avatar-choice"}
+                        aria-label={`Use ${avatar} avatar`}
+                      >
+                        {avatar}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <div className="onboarding-setup-grid">
+                  <fieldset className="onboarding-choice-group">
+                    <legend>Game Difficulty</legend>
+                    <div className="onboarding-difficulty-grid">
+                      {Object.entries(DIFFICULTY_PRESETS).map(([id, preset]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setOnboardingDifficultyDraft(id)}
+                          className={onboardingDifficultyDraft === id ? "onboarding-choice-active" : ""}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <label className="onboarding-field">
+                    <span>Starting Campaign Level</span>
+                    <select
+                      value={onboardingStartLevel}
+                      onChange={(event) => setOnboardingStartLevel(Number(event.target.value))}
+                    >
+                      {LEVELS.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          Level {item.id}: {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="onboarding-icon" aria-hidden="true">
+                  {ONBOARDING_STEPS[onboardingStep].icon}
+                </div>
+                <p className="onboarding-eyebrow">{ONBOARDING_STEPS[onboardingStep].eyebrow}</p>
+                <h2 id="onboarding-title" className="onboarding-title">
+                  {ONBOARDING_STEPS[onboardingStep].title}
+                </h2>
+                <p className="onboarding-copy">{ONBOARDING_STEPS[onboardingStep].body}</p>
+              </>
+            )}
             <div className="onboarding-actions">
-              <button type="button" onClick={completeOnboarding} className="menu-ghost-button">
-                Skip
-              </button>
+              {onboardingStep === 0 ? (
+                <div className="onboarding-required-note">Saved locally to this profile</div>
+              ) : (
+                <button type="button" onClick={completeOnboarding} className="menu-ghost-button">
+                  Skip Tutorial
+                </button>
+              )}
               <button
                 type="button"
+                disabled={onboardingStep === 0 && !onboardingNameDraft.trim()}
                 onClick={() => {
                   if (onboardingStep >= ONBOARDING_STEPS.length - 1) {
                     completeOnboarding();
                   } else {
+                    if (onboardingStep === 0) saveOnboardingProfile();
                     playSFX("button");
                     setOnboardingStep((step) => step + 1);
                   }
                 }}
                 className="menu-primary-button"
               >
-                {onboardingStep >= ONBOARDING_STEPS.length - 1 ? "Start Playing" : "Next"}
+                {onboardingStep === 0
+                  ? "Save Profile & Continue"
+                  : onboardingStep >= ONBOARDING_STEPS.length - 1
+                    ? "Start Playing"
+                    : "Next"}
               </button>
             </div>
           </section>
@@ -4435,7 +4769,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       )}
 
       {/* Global Session Controls */}
-      <div className="fixed top-2.5 right-2.5 z-40 flex items-center gap-2">
+      <div className="session-controls fixed top-2.5 right-2.5 z-40 flex items-center gap-2">
         {canPause && (
           <button
             type="button"
@@ -4541,7 +4875,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         </div>
       )}
 
-      <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-7xl items-center justify-center" : "max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch"}`}>
+      <div className={`w-full h-full mx-auto flex min-h-0 ${isMenu ? "max-w-7xl items-center justify-center" : `gameplay-layout gameplay-${gameState}${runMode === "ai_race" ? " ai-race-active" : ""} max-w-6xl flex-col md:flex-row gap-2 md:gap-6 items-center md:items-stretch`}`}>
 
         {isOnlineArena && (
           <OnlineArena
@@ -4558,19 +4892,19 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         {/* Arena VS Gameplay view */}
         {isArena && (
-          <div className="arena-shell w-full max-w-6xl flex flex-col items-center justify-start min-h-0 z-10 flex-1">
+          <div className={`arena-shell ${arenaMode === "vs_ai" ? "arena-shell-ai" : ""} w-full max-w-6xl flex flex-col items-center justify-start min-h-0 z-10 flex-1`}>
             <header className="arena-header w-full flex items-center justify-between bg-slate-900/90 backdrop-blur-md rounded-xl p-3 border border-slate-700/50 shadow-xl mb-3 shrink-0">
               <div className="text-left">
                 <span className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Blast Arena VS</span>
                 <h1 className="text-base font-black text-white leading-tight">
-                  {arenaMode === "vs_ai" ? `🤖 Versus AI Bot (${aiDifficulty})` : "🎮 Local 1v1 Split-Screen"}
+                  {arenaMode === "vs_ai" ? `🤖 Byte the AI · ${aiDifficulty[0].toUpperCase()}${aiDifficulty.slice(1)}` : "🎮 Local 1v1 Split-Screen"}
                 </h1>
               </div>
 
               {gameState === "arena_quiz" && currentQuestion ? (
-                <div className="flex-1 max-w-lg mx-4 text-center px-4 py-1.5 bg-slate-950/70 border border-slate-800 rounded-lg">
-                  <span className="text-[10px] font-black text-cyan-300 uppercase tracking-widest block mb-0.5 animate-pulse">Speed Quiz Duel</span>
-                  <span className="text-xs font-bold text-white block truncate">{currentQuestion.q}</span>
+                <div className="arena-question-banner flex-1 max-w-lg mx-4 text-center px-4 py-1.5 bg-slate-950/70 border border-slate-800 rounded-lg">
+                  <span className="text-[10px] font-black text-cyan-300 uppercase tracking-widest block mb-0.5">Read, Think, Then Strike</span>
+                  <span className="arena-question-text text-xs font-bold text-white block">{currentQuestion.q}</span>
                 </div>
               ) : (
                 <div className="flex-1 max-w-lg mx-4 text-center px-4 py-1.5 bg-slate-950/30 rounded-lg border border-transparent">
@@ -4587,8 +4921,10 @@ Can you beat my score? Play ThinkFastBlast!`;
                   {arenaMode === "vs_ai" ? `${totalScore2}/${WIN_SCORE_TARGET}` : `${WIN_SCORE_TARGET} Pts`}
                 </span>
                 {arenaMode === "vs_ai" && (
-                  <span className="block text-[9px] font-bold text-fuchsia-300">
-                    {gameState === "arena_quiz" && p2Answered === null && "Analyzing..."}
+                  <span className="arena-ai-status block text-[9px] font-bold text-fuchsia-300">
+                    {gameState === "arena_quiz" && p2Answered === null && (
+                      <><span className="ai-thinking-gear">⚙</span> {aiThinkingStage === "calculating" ? "Calculating..." : "Reading..."}</>
+                    )}
                     {gameState === "arena_quiz" && p2Answered === "correct" && "Answered correctly"}
                     {gameState === "arena_quiz" && p2Answered === "wrong" && "Missed the question"}
                     {gameState === "arena_dropping" && "Placing block"}
@@ -4596,6 +4932,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                   </span>
                 )}
               </div>
+              {arenaMode === "vs_ai" && (
+                <div className={`ai-quip ai-quip-${aiThinkingStage}`} role="status" aria-live="polite">
+                  <span>BYTE:</span> {aiQuip}
+                </div>
+              )}
             </header>
 
             <div className={`arena-board-grid flex-1 w-full min-h-0 grid gap-3 sm:gap-6 items-stretch mb-2 ${arenaMode === "vs_ai" ? "grid-cols-1 arena-board-grid-solo" : "grid-cols-2"}`}>
@@ -4784,7 +5125,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 {gameState === "arena_quiz" && currentQuestion ? (
                   p1Answered === null ? (
                     <div className="w-full">
-                      <span className="text-[10px] font-black text-cyan-300 tracking-wider block mb-1">Player 1 Options (Keys 1-4)</span>
+                      <span className="text-[10px] font-black text-cyan-300 tracking-wider block mb-1">Your Answer</span>
                       <div className="grid grid-cols-2 gap-1.5">
                         {currentQuestion.options.map((opt, idx) => (
                           <button
@@ -4941,7 +5282,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         {/* Arena Match Victory Screen */}
         {!isMenu && gameState === "arena_win" && (
-          <section className="w-full max-w-xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[420px] text-center">
+          <section className="arena-result-screen w-full max-w-xl mx-auto flex flex-col items-center justify-center p-6 bg-slate-800/80 backdrop-blur-xl border border-slate-700/50 rounded-3xl shadow-2xl relative overflow-hidden z-10 animate-float min-h-[420px] text-center">
             <BrainSparksCanvas />
 
             <h2 className="text-4xl md:text-5xl font-black mb-4 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-rose-500 to-amber-500 drop-shadow-md">
@@ -4995,9 +5336,24 @@ Can you beat my score? Play ThinkFastBlast!`;
         )}
 
         {/* Playable Game Grid View */}
-        {!isMenu && gameState !== "intro" && !isArena && !isOnlineArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
-          <section className="w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
-            <div className="game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
+        {!isMenu && gameState !== "intro" && !isArena && !isOnlineArena && gameState !== "arena_intro" && gameState !== "arena_win" && gameState !== "level_win" && gameState !== "gameover" && (
+          <section className="gameplay-board-section w-full md:w-[42%] flex flex-col items-center justify-center min-h-0 z-10" aria-label="Game board">
+            {runMode === "ai_race" && (
+              <div className="ai-race-strip game-board-width">
+                <div>
+                  <span>YOU</span>
+                  <strong>{totalScore}/{runTarget}</strong>
+                  <small>{questionsAnsweredThisLevel} correct</small>
+                </div>
+                <div className={`ai-race-byte ai-race-byte-${aiThinkingStage}`}>
+                  <span><b className={aiThinkingStage === "reading" ? "ai-thinking-gear" : ""}>⚙</b> BYTE</span>
+                  <strong>{aiRaceMetrics.score}/{runTarget}</strong>
+                  <small>{aiRaceMetrics.correct} correct · mission {aiRaceObjectiveStatus.current}/{aiRaceObjectiveStatus.required}</small>
+                </div>
+                <p><b>BYTE:</b> {aiQuip}</p>
+              </div>
+            )}
+            <div className="score-hud game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
               <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{runTarget}</span></span>
               {windForce !== 0 && (
                 <span className="text-sky-300 font-bold animate-pulse text-xs flex items-center gap-1">
@@ -5020,8 +5376,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             <div className="piece-preview-row game-board-width">
               <PiecePreview label="Hold" piece={heldPiece} muted={!heldPiece || holdUsed} />
               <div className="piece-preview-mission">
-                <span>{DIFFICULTY_PRESETS[difficultyMode].label}</span>
-                <strong>{runConfig.objective.label}</strong>
+                <span>HOW TO WIN</span>
+                <strong>Complete BOTH goals below</strong>
               </div>
               <PiecePreview label="Next" piece={nextPiece} />
             </div>
@@ -5031,10 +5387,45 @@ Can you beat my score? Play ThinkFastBlast!`;
                 🎯 MATCH POINT — {runTarget - totalScore} to score goal!
               </div>
             )}
-            <div className={objectiveStatus.complete ? "mission-banner mission-banner-complete game-board-width" : "mission-banner game-board-width"}>
-              <span>{objectiveStatus.complete ? "✓" : "◆"} {runConfig.objective.label}</span>
-              <strong>{objectiveStatus.current}/{objectiveStatus.required}</strong>
-            </div>
+            {waitingOnMission && (
+              <div className="match-point-banner game-board-width">
+                SCORE COMPLETE — Mission remaining: {runConfig.objective.label} ({objectiveStatus.current}/{objectiveStatus.required})
+              </div>
+            )}
+              <div className="win-goals game-board-width" aria-label="Level win requirements">
+              <div className={scoreGoalComplete ? "win-goal win-goal-complete" : "win-goal"}>
+                <span>{scoreGoalComplete ? "✓" : "1"} SCORE GOAL</span>
+                <strong>{totalScore}/{runTarget} points</strong>
+              </div>
+              <div className={objectiveStatus.complete ? "win-goal win-goal-complete" : "win-goal"}>
+                <span>{objectiveStatus.complete ? "✓" : "2"} LEVEL MISSION</span>
+                <strong>{runConfig.objective.label} · {objectiveStatus.current}/{objectiveStatus.required}</strong>
+              </div>
+              </div>
+
+              {Object.entries(BOARD_POWERS).some(([id]) => stats.unlockedItems.includes(id)) && (
+                <div className="power-deck game-board-width" aria-label="Power Deck">
+                  <span>POWER DECK</span>
+                  {Object.entries(BOARD_POWERS).map(([id, power]) => {
+                    if (!stats.unlockedItems.includes(id)) return null;
+                    const used = usedPowers.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => activateBoardPower(id)}
+                        disabled={used || gameState !== "quiz"}
+                        className={`power-deck-button power-deck-${power.effect}`}
+                        title={`${power.name}: ${power.description}`}
+                        aria-label={`${power.name}${used ? " used" : ""}`}
+                      >
+                        <b>{power.emoji}</b>
+                        <small>{used ? "USED" : power.name}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
             <div
               className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? "animate-shake" : ""} ${correctStreak >= 7 ? "combo-heat-3" : correctStreak >= 5 ? "combo-heat-2" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
@@ -5120,11 +5511,9 @@ Can you beat my score? Play ThinkFastBlast!`;
 
             {gameState === "dropping" && isControllable && (
               <div className="game-controls mt-2 lg:hidden flex flex-col gap-1.5">
-                <div className="grid grid-cols-3 gap-1.5">
-                  <div />
-                  <button type="button" onClick={rotatePiece} className="mobile-control-button" aria-label="Rotate">↑</button>
-                  <div />
+                <div className="grid grid-cols-4 gap-1.5">
                   <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button" aria-label="Move left">←</button>
+                  <button type="button" onClick={rotatePiece} className="mobile-control-button" aria-label="Rotate">↑</button>
                   <button type="button" onClick={moveDown} className="mobile-control-button" aria-label="Soft drop">↓</button>
                   <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button" aria-label="Move right">→</button>
                 </div>
@@ -5169,14 +5558,34 @@ Can you beat my score? Play ThinkFastBlast!`;
             <h2 className="text-2xl md:text-3xl font-black text-white mb-6 z-10 drop-shadow-md">
               {currentLevel.name}
             </h2>
-            <div className="z-10 -mt-3 mb-5 flex flex-wrap justify-center gap-2">
-              <span className="intro-rule-chip">{DIFFICULTY_PRESETS[difficultyMode].label}</span>
-              <span className="intro-rule-chip">{runTarget} point target</span>
-              <span className="intro-rule-chip intro-rule-chip-mission">{runConfig.objective.label}</span>
+            <div className="intro-win-brief z-10">
+              <div className="intro-win-title">HOW TO WIN: COMPLETE BOTH GOALS</div>
+              <div className="intro-win-goals">
+                <div className="intro-win-goal intro-win-goal-score">
+                  <span>1</span>
+                  <div>
+                    <small>SCORE GOAL</small>
+                    <strong>Reach {runTarget} points</strong>
+                  </div>
+                </div>
+                <div className="intro-win-goal intro-win-goal-mission">
+                  <span>2</span>
+                  <div>
+                    <small>LEVEL MISSION</small>
+                    <strong>{runConfig.objective.label}</strong>
+                  </div>
+                </div>
+              </div>
+              <p>Scoring enough points alone does not win the level.</p>
+              {runMode === "ai_race" && (
+                <p className="intro-ai-race-note">
+                  Race Byte on the same level. First to complete both goals wins.
+                </p>
+              )}
             </div>
 
             {/* Curated Fact card */}
-            <div className="w-full max-w-md bg-slate-950/60 border border-slate-700/50 p-5 rounded-2xl shadow-inner text-center z-10 backdrop-blur-md mb-8">
+            <div className="intro-fact-card w-full max-w-md bg-slate-950/60 border border-slate-700/50 p-5 rounded-2xl shadow-inner text-center z-10 backdrop-blur-md mb-8">
               <h3 className="text-[10px] font-black uppercase text-purple-400 tracking-wider mb-2">Did You Know?</h3>
               <p className="text-slate-200 text-sm md:text-base leading-relaxed font-semibold">
                 "{randomFact}"
@@ -5208,7 +5617,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     Think Fast Blast
                   </h1>
                   <p className="menu-subtitle">
-                    Fast answers. Falling pieces. Chain reactions.
+                    Answer fast, steer the falling blocks, and complete both goals to win.
                   </p>
 
                   <div className="profile-strip">
@@ -5235,7 +5644,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                           className={difficultyMode === preset.id ? "difficulty-pill difficulty-pill-active" : "difficulty-pill"}
                           title={preset.description}
                         >
-                          {preset.id === "young" ? "Young" : preset.id === "normal" ? "Arcade" : "Expert"}
+                          {preset.label}
                         </button>
                       ))}
                     </div>
@@ -5245,43 +5654,39 @@ Can you beat my score? Play ThinkFastBlast!`;
                     <button
                       type="button"
                       onClick={() => startLevel(maxUnlockedLevel)}
-                      className="menu-primary-button"
+                      className="home-action-card home-action-solo"
                     >
-                      Start Level {maxUnlockedLevel}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => startLevel(98)}
-                      className="menu-ghost-button border-amber-400/40 text-amber-200 hover:text-white"
-                    >
-                      ☀ Daily Blast
+                      <span>⚡</span>
+                      <strong>Play Solo</strong>
+                      <small>Continue at Level {maxUnlockedLevel}</small>
                     </button>
                     <button
                       type="button"
                       onClick={() => { playSFX("button"); setMenuTab("arena"); }}
-                      className="menu-ghost-button border-purple-400/40 text-purple-300 hover:text-white shadow-[0_0_12px_rgba(168,85,247,0.15)]"
+                      className="home-action-card home-action-friends"
                     >
-                      🔮 Blast Arena
+                      <span>🎮</span>
+                      <strong>Play With Friends</strong>
+                      <small>AI, local, and online matches</small>
                     </button>
-                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="menu-ghost-button">
-                      Glitch Codex
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("shop"); }} className="home-action-card home-action-shop">
+                      <span>🛒</span>
+                      <strong>Power-Up Shop</strong>
+                      <small>Spend Glitches on powers and themes</small>
                     </button>
-                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("achievements"); }} className="menu-ghost-button border-amber-400/30 text-amber-200 hover:text-white">
-                      🏆 Achievements
-                    </button>
+                  </div>
+
+                  <div className="home-secondary-actions">
+                    <button type="button" onClick={() => startLevel(98)}>☀ Daily Challenge</button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("achievements"); }}>🏆 Achievements</button>
                     <button
                       type="button"
                       onClick={() => { playSFX("button"); setMenuTab("builder"); }}
-                      className="menu-ghost-button border-cyan-400/40 text-cyan-300 hover:text-white"
                     >
                       🎯 Question Builder
                     </button>
-                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }} className="menu-ghost-button">
-                      How To Play
-                    </button>
-                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("settings"); }} className="menu-ghost-button">
-                      ⚙ Settings
-                    </button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("instructions"); }}>❔ How To Play</button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("settings"); }}>⚙ Settings</button>
                   </div>
 
                   <div className="menu-stats-row">
@@ -5410,7 +5815,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                             </span>
                             {isUnlocked && (
                               <span className="level-card-objective">
-                                {cardRunConfig.target} pts · {cardRunConfig.objective.label}
+                                Win: {cardRunConfig.target} pts + {cardRunConfig.objective.label}
                               </span>
                             )}
                             {isUnlocked && bestScore > 0 && (
@@ -5460,10 +5865,10 @@ Can you beat my score? Play ThinkFastBlast!`;
               <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-4 shrink-0">
                 <div className="text-left">
                   <h2 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-rose-400">
-                    🔮 The Blast Arena
+                    🎮 Play With Friends
                   </h2>
                   <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                    Battle AI on a full board or connect 2-4 devices for true multiplayer
+                    1vAI · Local 1v1 · Online 1v1 or 3-4 player free-for-all
                   </p>
                 </div>
                 <button
@@ -5514,7 +5919,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                         }`}
                       >
                         <span className="text-2xl mb-1">🌐</span>
-                        Online 2-4
+                        Online Duel / FFA
                       </button>
                     </div>
                   </div>
@@ -5552,7 +5957,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                     </h3>
                     <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 text-[11px] font-semibold text-slate-300 leading-relaxed space-y-1.5">
                       {arenaMode === "online" ? (
-                        <div><strong className="text-cyan-300">Room Codes:</strong> Create a room, share the 6-character code, and join from up to four phones or computers. Each device shows one full-size board.</div>
+                        <div><strong className="text-cyan-300">Room Codes:</strong> Two devices play a 1v1 duel. Three or four devices play a free-for-all. Each player gets one full-size board.</div>
+                      ) : arenaMode === "vs_ai" ? (
+                        <div><strong className="text-cyan-300">Full-Screen AI Race:</strong> Play exactly like campaign mode. You and Byte answer independently; the first racer to reach the score target and complete the level mission wins.</div>
                       ) : (
                         <div><strong className="text-cyan-300">P1 (Left):</strong> Keys <kbd className="bg-slate-800 text-white px-1 rounded">1</kbd>-<kbd className="bg-slate-800 text-white px-1 rounded">4</kbd> to answer · <kbd className="bg-slate-800 text-white px-1 rounded">W/A/S/D</kbd> to steer · <kbd className="bg-slate-800 text-white px-1 rounded">Space</kbd> drop</div>
                       )}
@@ -5617,10 +6024,12 @@ Can you beat my score? Play ThinkFastBlast!`;
                   type="button"
                   onClick={() => arenaMode === "online"
                     ? startOnlineArena()
-                    : startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
+                    : arenaMode === "vs_ai"
+                      ? startLevel(arenaLevel, "ai_race")
+                      : startArenaMatch(arenaMode, aiDifficulty, arenaLevel)}
                   className="w-full bg-gradient-to-r from-purple-600 to-rose-500 hover:from-purple-500 hover:to-rose-400 text-white font-black py-3 px-6 rounded-xl shadow-[0_0_20px_rgba(168,85,247,0.35)] hover:scale-[1.01] transition-transform text-sm font-black uppercase tracking-widest text-center"
                 >
-                  {arenaMode === "online" ? "🌐 OPEN ONLINE LOBBY" : "🔥 START ARENA DUEL"}
+                  {arenaMode === "online" ? "🌐 OPEN ONLINE LOBBY" : arenaMode === "vs_ai" ? "🤖 START FULL-SCREEN AI RACE" : "🔥 START ARENA DUEL"}
                 </button>
               </div>
             </div>
@@ -5649,6 +6058,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               <div className="grid gap-3 md:grid-cols-2">
                 {profiles.map((profile) => {
                   const isActive = profile.id === activeProfileId;
+                  const savedLevel = isActive ? maxUnlockedLevel : readProfileProgress(profile.id);
                   return (
                     <article key={profile.id} className={isActive ? "profile-card profile-card-active" : "profile-card"}>
                       <div className="profile-card-avatar">{profile.avatar}</div>
@@ -5658,7 +6068,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                           {isActive && <span className="profile-active-badge">Active</span>}
                         </div>
                         <p className="text-xs font-bold text-slate-400">
-                          {DIFFICULTY_PRESETS[profile.difficulty]?.label || "Arcade"} · Level {isActive ? maxUnlockedLevel : "save"}
+                          {DIFFICULTY_PRESETS[profile.difficulty]?.label || "Medium"} · Level {savedLevel} unlocked
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col gap-2">
@@ -5689,13 +6099,14 @@ Can you beat my score? Play ThinkFastBlast!`;
               <div className="mt-5 grid gap-4 rounded-2xl border border-slate-700/60 bg-slate-950/45 p-4 md:grid-cols-[1fr_auto]">
                 <div>
                   <label htmlFor="profile-name" className="block text-left text-[10px] font-black uppercase tracking-widest text-cyan-300">
-                    New Profile
+                    New Profile · {profiles.length}/{MAX_PROFILES} Slots Used
                   </label>
                   <input
                     id="profile-name"
                     value={profileNameDraft}
                     onChange={(event) => setProfileNameDraft(event.target.value)}
                     maxLength={18}
+                    disabled={profiles.length >= MAX_PROFILES}
                     placeholder={`Player ${profiles.length + 1}`}
                     className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 font-bold text-white outline-none focus:border-cyan-400"
                   />
@@ -5714,13 +6125,19 @@ Can you beat my score? Play ThinkFastBlast!`;
                   </div>
                 </div>
                 <div className="flex flex-col justify-end gap-2">
-                  <button type="button" onClick={handleCreateProfile} className="menu-primary-button">
-                    Create Profile
+                  <button
+                    type="button"
+                    onClick={handleCreateProfile}
+                    disabled={profiles.length >= MAX_PROFILES}
+                    className="menu-primary-button"
+                  >
+                    {profiles.length >= MAX_PROFILES ? "All 5 Profiles Used" : "Create Profile"}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setOnboardingStep(0);
+                      prepareOnboardingDrafts(activeProfile, maxUnlockedLevel);
+                      setOnboardingStep(1);
                       setShowOnboarding(true);
                     }}
                     className="menu-ghost-button"
@@ -5833,7 +6250,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                   }}
                   className="menu-ghost-button"
                 >
-                  Back
+                  Home
                 </button>
               </div>
 
@@ -5858,15 +6275,15 @@ Can you beat my score? Play ThinkFastBlast!`;
               </div>
             </div>
           ) : menuTab === "shop" ? (
-            // Redesigned Glitch Codex Store
+            // Power-up and cosmetic store
             <div className="menu-panel w-full max-w-4xl bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl p-4 md:p-5 z-10">
               <div className="flex items-center justify-between border-b border-slate-700/50 pb-3 mb-4">
                 <div>
                   <h2 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-500 to-rose-400">
-                    🔮 The Glitch Codex Shop
+                    🛒 Power-Up Shop
                   </h2>
                   <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                    Unlock theme cosmetics and catalyst block perks
+                    Permanent powers, special blocks, and board themes
                   </p>
                 </div>
 
@@ -5977,7 +6394,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                   </button>
                 ) : <div />}
                 <button type="button" onClick={() => { playSFX("button"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-2 px-6 rounded-xl text-xs border border-slate-600 shadow-md">
-                  Back to Levels Menu
+                    Home
                 </button>
               </div>
             </div>
@@ -6464,7 +6881,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 How To Play
               </h1>
               <p className="text-sm md:text-base text-slate-300 mb-6 font-semibold">
-                Answer trivia cards rapidly, place your falling pieces strategically, and complete each level's score and mission goals to advance.
+                Answer trivia cards rapidly and place your falling pieces strategically. Every level shows two win requirements: reach the score target and complete the level mission.
               </p>
 
               <div className="grid md:grid-cols-2 gap-4 text-left text-xs md:text-sm mb-6">
@@ -6497,13 +6914,13 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         {/* Panel View for active gameplay states */}
         {!isMenu && gameState !== "intro" && !isArena && gameState !== "arena_intro" && gameState !== "arena_win" && (
-          <main className={panelClass}>
-            <div className="static md:absolute md:top-4 md:right-4 mb-2 md:mb-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[10px] md:text-xs font-black px-3 md:px-4 py-1.5 rounded-full shadow-lg border border-white/20">
+          <main className={`${panelClass} gameplay-panel-${gameState}`}>
+            <div className="level-pill static md:absolute md:top-4 md:right-4 mb-2 md:mb-0 bg-gradient-to-r from-purple-600 to-blue-600 text-white text-[10px] md:text-xs font-black px-3 md:px-4 py-1.5 rounded-full shadow-lg border border-white/20">
               LEVEL {level}: {currentLevel.name}
             </div>
 
             {gameState === "quiz" && currentQuestion && (
-              <div className="w-full flex flex-col min-h-0">
+              <div className="quiz-content w-full flex flex-col min-h-0">
                 <h2 className="text-xs md:text-sm font-black text-cyan-400 uppercase tracking-widest mb-2 flex items-center gap-2 justify-center md:justify-start">
                   <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                   Question {questionIndex + 1}
@@ -6513,10 +6930,10 @@ Can you beat my score? Play ThinkFastBlast!`;
                   active={gameState === "quiz"}
                   windowSeconds={runConfig.difficulty.quickWindowSeconds}
                 />
-                <h3 className="text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
+                <h3 className="quiz-question text-lg sm:text-xl md:text-3xl font-bold mb-3 md:mb-5 text-white leading-tight drop-shadow-md">
                   {currentQuestion.q}
                 </h3>
-                <div className="grid grid-cols-2 gap-2 md:gap-4 w-full">
+                <div className="quiz-answer-grid grid grid-cols-2 gap-2 md:gap-4 w-full">
                   {currentQuestion.options.map((option, index) => (
                     <button key={option} type="button" onClick={() => handleAnswer(index)} className="answer-button group flex items-center gap-2.5 bg-slate-700/80 hover:bg-gradient-to-r hover:from-blue-600 hover:to-cyan-500 hover:scale-[1.02] active:scale-95 transition-all rounded-xl md:rounded-2xl text-sm sm:text-base md:text-lg font-bold text-left shadow-lg border border-slate-600/50">
                       <span className="answer-badge">{String.fromCharCode(65 + index)}</span>
@@ -6561,7 +6978,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             )}
 
             {gameState === "dropping" && (
-              <div className="w-full flex flex-col items-center md:items-start text-slate-300">
+              <div className="drop-guidance w-full flex flex-col items-center md:items-start text-slate-300">
                 <h3 className="text-xl md:text-2xl font-black mb-3 md:mb-6 text-white drop-shadow-md">
                   {isControllable
                     ? `Place your block! ${activePiece?.isTNT ? "💣 TNT active" : activePiece?.isDrill ? "🌀 Drill active" : activePiece?.isLightning ? "⚡ Lightning active" : activePiece?.isSlime ? "🦠 Sticky Slime active" : activePiece?.isCatalystBomb ? "💣 Catalyst Bomb active" : activePiece?.isWildcard ? "✨ Wildcard Star active" : ""}`
@@ -6615,7 +7032,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             {gameState === "level_win" && (
               <div className="w-full flex flex-col items-center md:items-start">
                 <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-600 drop-shadow-md">
-                  {runMode === "daily" ? "Daily Blast Complete!" : runMode === "custom" ? "Custom Pack Complete!" : "Level Complete!"}
+                  {runMode === "ai_race" ? "You Beat Byte!" : runMode === "daily" ? "Daily Blast Complete!" : runMode === "custom" ? "Custom Pack Complete!" : "Level Complete!"}
                 </h2>
 
                 <div className="flex items-center gap-2 mb-3" aria-label={`${winStars} of 3 stars`}>
@@ -6634,7 +7051,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <p className="text-base md:text-xl text-slate-300 mb-4 font-medium">
-                  You reached <span className="score-readout">{animatedScore}</span> points on {currentLevel.name}!
+                  {runMode === "ai_race"
+                    ? <>You completed the score goal and mission first: <span className="score-readout">{animatedScore}</span> to Byte&apos;s {aiRaceMetrics.score}.</>
+                    : <>You reached <span className="score-readout">{animatedScore}</span> points on {currentLevel.name}!</>}
                 </p>
 
                 <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-700/50 mb-5 text-xs md:text-sm font-bold flex items-center gap-1.5 shadow-inner">
@@ -6674,11 +7093,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                         Daily streak: {stats.dailyStreak || 1} day{(stats.dailyStreak || 1) === 1 ? "" : "s"} · Best {Math.max(stats.dailyBest || 0, totalScore)}
                       </p>
                     )}
-                    <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
-                      Play Again
+                    <button type="button" onClick={() => startLevel(level, runMode === "ai_race" ? "ai_race" : undefined)} className="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
+                      {runMode === "ai_race" ? "Race Again" : "Play Again"}
                     </button>
-                    <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
-                      Main Menu
+                    <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab(runMode === "ai_race" ? "arena" : "levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 px-6 rounded-full shadow-lg hover:scale-105 transition-transform">
+                      {runMode === "ai_race" ? "Arena Lobby" : "Main Menu"}
                     </button>
                     <button type="button" onClick={handleShare} className="bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 px-6 rounded-full border border-cyan-500/40">
                       Share
@@ -6694,11 +7113,13 @@ Can you beat my score? Play ThinkFastBlast!`;
             {gameState === "gameover" && (
               <div className="w-full flex flex-col items-center md:items-start">
                 <h2 className="text-3xl md:text-5xl font-black mb-2 md:mb-4 text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-orange-600 drop-shadow-md">
-                  Game Over!
+                  {runMode === "ai_race" ? "Byte Wins the Race" : "Game Over!"}
                 </h2>
                 <div className="bg-slate-900/60 p-3 md:p-6 rounded-2xl border border-slate-700/50 mb-4 md:mb-6 w-full text-center md:text-left shadow-inner">
                   <p className="text-base md:text-xl text-slate-300 mb-1 font-bold">
-                    {misses >= strikeLimit
+                    {runMode === "ai_race" && arenaResult === "ai_win"
+                      ? `Byte completed both goals first. You scored ${totalScore}; Byte scored ${aiRaceMetrics.score}.`
+                      : misses >= strikeLimit
                       ? "You ran out of recovery options!"
                       : questionIndex >= shuffledQuestions.length - 1
                         ? "Ran out of trivia questions!"
@@ -6718,11 +7139,11 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
-                  <button type="button" onClick={() => startLevel(level)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
-                    {runMode === "campaign" ? `RESTART LEVEL ${level}` : "TRY AGAIN"}
+                  <button type="button" onClick={() => startLevel(level, runMode === "ai_race" ? "ai_race" : undefined)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
+                    {runMode === "ai_race" ? "RACE AGAIN" : runMode === "campaign" ? `RESTART LEVEL ${level}` : "TRY AGAIN"}
                   </button>
-                  <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab("levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
-                    Main Menu
+                  <button type="button" onClick={() => { playSFX("button"); setGameState("start"); setMenuTab(runMode === "ai_race" ? "arena" : "levels"); }} className="bg-slate-700 hover:bg-slate-600 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-slate-500">
+                    {runMode === "ai_race" ? "Arena Lobby" : "Main Menu"}
                   </button>
                   <button type="button" onClick={handleShare} className="bg-slate-950 hover:bg-slate-900 text-cyan-300 font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-lg transition-transform hover:scale-105 border border-cyan-500/40">
                     Share Run

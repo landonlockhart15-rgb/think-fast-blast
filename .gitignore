@@ -18,6 +18,8 @@ output
 fit-*.png
 layout-*.png
 mobile-*.png
+ai-arena-*.png
+profiles-*.png
 
 # Editor directories and files
 .vscode/*

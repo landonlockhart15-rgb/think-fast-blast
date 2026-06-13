@@ -1,6 +1,7 @@
 export const PROFILE_LIST_KEY = "think-fast-blast-profiles";
 export const ACTIVE_PROFILE_KEY = "think-fast-blast-active-profile";
 export const DEFAULT_PROFILE_ID = "player-1";
+export const MAX_PROFILES = 5;
 
 const getStorage = (storage) => {
   if (storage) return storage;
@@ -32,6 +33,8 @@ export const createDefaultProfile = () => ({
   name: "Player 1",
   avatar: "⚡",
   difficulty: "normal",
+  startingLevel: 1,
+  profileSetupComplete: false,
   onboardingComplete: false,
   createdAt: new Date().toISOString(),
 });
@@ -40,7 +43,14 @@ export const readProfiles = (storage) => {
   const target = getStorage(storage);
   try {
     const parsed = JSON.parse(safeGetItem(target, PROFILE_LIST_KEY) || "null");
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.slice(0, MAX_PROFILES).map((profile, index) => ({
+        ...createDefaultProfile(),
+        ...profile,
+        id: profile.id || `player-${index + 1}`,
+        startingLevel: Math.min(Math.max(Number(profile.startingLevel) || 1, 1), 20),
+      }));
+    }
   } catch {
     // Fall through to the default profile.
   }
@@ -72,9 +82,9 @@ export const setActiveProfileId = (profileId, storage) => {
 export const getScopedStorageKey = (baseKey, profileId, storage) =>
   `${baseKey}:${profileId || getActiveProfileId(storage)}`;
 
-export const readScopedValue = (baseKey, storage) => {
+export const readScopedValue = (baseKey, storage, profileId) => {
   const target = getStorage(storage);
-  const scopedKey = getScopedStorageKey(baseKey, null, target);
+  const scopedKey = getScopedStorageKey(baseKey, profileId, target);
   const scoped = safeGetItem(target, scopedKey);
   if (scoped !== null && scoped !== undefined) return scoped;
 
@@ -86,19 +96,27 @@ export const readScopedValue = (baseKey, storage) => {
   return null;
 };
 
-export const writeScopedValue = (baseKey, value, storage) => {
+export const writeScopedValue = (baseKey, value, storage, profileId) => {
   const target = getStorage(storage);
-  safeSetItem(target, getScopedStorageKey(baseKey, null, target), value);
+  safeSetItem(target, getScopedStorageKey(baseKey, profileId, target), value);
 };
 
-export const createProfile = ({ name, avatar = "⚡", difficulty = "normal" }, storage) => {
+export const createProfile = ({
+  name,
+  avatar = "⚡",
+  difficulty = "normal",
+  startingLevel = 1,
+}, storage) => {
   const target = getStorage(storage);
   const profiles = readProfiles(target);
+  if (profiles.length >= MAX_PROFILES) return null;
   const profile = {
     id: `player-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name: String(name || `Player ${profiles.length + 1}`).trim().slice(0, 18),
     avatar,
     difficulty,
+    startingLevel: Math.min(Math.max(Number(startingLevel) || 1, 1), 20),
+    profileSetupComplete: false,
     onboardingComplete: false,
     createdAt: new Date().toISOString(),
   };

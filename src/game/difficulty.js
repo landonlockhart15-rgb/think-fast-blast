@@ -1,7 +1,7 @@
 export const DIFFICULTY_PRESETS = {
   young: {
     id: "young",
-    label: "Young Explorer",
+    label: "Beginner",
     description: "More thinking time, four strikes, and gentler gravity.",
     gravityMultiplier: 1.08,
     quizMultiplier: 0.82,
@@ -11,7 +11,7 @@ export const DIFFICULTY_PRESETS = {
   },
   normal: {
     id: "normal",
-    label: "Arcade",
+    label: "Medium",
     description: "The intended mix of quick trivia and board pressure.",
     gravityMultiplier: 0.78,
     quizMultiplier: 0.56,
@@ -21,7 +21,7 @@ export const DIFFICULTY_PRESETS = {
   },
   expert: {
     id: "expert",
-    label: "Overdrive",
+    label: "Advanced",
     description: "Fast gravity, short decisions, two strikes, and higher targets.",
     gravityMultiplier: 0.56,
     quizMultiplier: 0.38,

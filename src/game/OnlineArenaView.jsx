@@ -100,7 +100,8 @@ export default function OnlineArena({
   playSFX,
 }) {
   const [clientId] = useState(getClientId);
-  const playerName = activeProfile?.name || "Player";
+  const [playerName, setPlayerName] = useState(() => activeProfile?.name || "Player");
+  const displayName = playerName.trim() || "Player";
   const [screen, setScreen] = useState("lobby");
   const [roomInput, setRoomInput] = useState("");
   const [roomCode, setRoomCode] = useState("");
@@ -131,7 +132,7 @@ export default function OnlineArena({
     if (!stateRef.current.match) return;
     send("player_state", {
       playerId: clientId,
-      name: playerName,
+      name: displayName,
       board: nextArena.board,
       score: nextArena.score,
       streak: nextArena.streak,
@@ -139,7 +140,7 @@ export default function OnlineArena({
       round: nextArena.round,
       sentAt: Date.now(),
     });
-  }, [clientId, playerName, send]);
+  }, [clientId, displayName, send]);
 
   const applyRound = useCallback((round, seed) => {
     roundWinnerRef.current = null;
@@ -300,7 +301,7 @@ export default function OnlineArena({
           if (attacked.toppedOut) {
             send("player_state", {
               playerId: clientId,
-              name: playerName,
+              name: displayName,
               ...next,
               sentAt: Date.now(),
             });
@@ -328,7 +329,7 @@ export default function OnlineArena({
           }
           await channel.track({
             playerId: clientId,
-            name: playerName.slice(0, 18),
+            name: displayName.slice(0, 18),
             host,
             joinedAt: Date.now(),
           });
@@ -341,7 +342,7 @@ export default function OnlineArena({
           setError("Could not connect to the arena. Check your internet and try again.");
         }
       });
-  }, [applyRound, clientId, playerName, playSFX, send, startMatchFromPayload]);
+  }, [applyRound, clientId, displayName, playSFX, send, startMatchFromPayload]);
 
   useEffect(() => () => {
     if (channelRef.current) supabase.removeChannel(channelRef.current);
@@ -419,14 +420,14 @@ export default function OnlineArena({
     if (resolved.attacks > 0) {
       send("garbage_attack", {
         fromId: clientId,
-        fromName: playerName,
+        fromName: displayName,
         count: resolved.attacks,
         round: match.round,
       });
     }
     if (nextArena.score >= WIN_SCORE_TARGET || nextArena.toppedOut) return;
     setStatusText("Waiting for the next round...");
-  }, [activePiece, answerState, arena, clientId, match, playerName, send, sendSnapshot]);
+  }, [activePiece, answerState, arena, clientId, displayName, match, send, sendSnapshot]);
 
   useEffect(() => {
     const shouldAutoDrop = ["correct", "wrong", "locked"].includes(answerState);
@@ -462,7 +463,20 @@ export default function OnlineArena({
       <div className="online-arena-panel">
         <div className="online-arena-kicker">True Cross-Device Multiplayer</div>
         <h2>Online Blast Arena</h2>
-        <p>Play together on 2-4 phones, tablets, or computers. Every player gets a full-size board.</p>
+        <p>Play a two-player online duel or a three-to-four-player free-for-all. Every device gets one full-size board.</p>
+        <label className="online-name-field">
+          <span>Your Arena Name</span>
+          <input
+            value={playerName}
+            onChange={(event) => setPlayerName(event.target.value.slice(0, 18))}
+            maxLength={18}
+            aria-label="Arena player name"
+          />
+        </label>
+        <div className="online-rules-brief">
+          <strong>First to {WIN_SCORE_TARGET} points wins.</strong>
+          <span>Answer first to steer. Clear lines to send garbage rows to every opponent.</span>
+        </div>
         <button
           type="button"
           className="online-primary-button"
@@ -491,7 +505,11 @@ export default function OnlineArena({
       <div className="online-arena-panel">
         <div className="online-arena-kicker">{connection === "online" ? "Room Online" : "Connecting"}</div>
         <h2>Room {roomCode}</h2>
-        <p>Share this code. The host starts when 2-4 players are connected.</p>
+        <p>
+          Share this code. {players.length <= 2
+            ? "Two connected players start an online 1v1 duel."
+            : `${players.length} connected players start a free-for-all.`}
+        </p>
         <div className="online-player-list">
           {players.map((player) => (
             <div key={player.id}>
@@ -510,7 +528,9 @@ export default function OnlineArena({
             disabled={players.length < 2}
             onClick={startOnlineMatch}
           >
-            Start {players.length}-Player Match
+            {players.length === 2
+              ? "Start Online 1v1"
+              : `Start ${players.length}-Player Free-for-All`}
           </button>
         ) : (
           <div className="online-waiting">Waiting for the host to start...</div>
@@ -525,7 +545,7 @@ export default function OnlineArena({
       <header className="online-match-header">
         <div>
           <div className="online-arena-kicker">Room {roomCode}</div>
-          <strong>{playerName}</strong>
+          <strong>{displayName}</strong>
         </div>
         <div className="online-match-score">{arena.score}<small>/{WIN_SCORE_TARGET}</small></div>
         <button type="button" onClick={onExit}>Leave</button>
