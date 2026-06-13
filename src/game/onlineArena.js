@@ -12,6 +12,7 @@ import {
   findFullRows,
 } from "./board.js";
 import { createSeededRandom } from "./random.js";
+import { SPECIAL_BLOCK_RATES } from "./specialBalance.js";
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -29,7 +30,10 @@ export const normalizeRoomCode = (value) =>
 
 export const createArenaPiece = (seed, roundIndex) => {
   const random = createSeededRandom(`${seed}:piece:${roundIndex}`);
-  const pool = roundIndex > 0 && random() < 0.1 ? FRUITS : TETROMINOES;
+  const pool =
+    roundIndex > 0 && random() < SPECIAL_BLOCK_RATES.arenaFruit
+      ? FRUITS
+      : TETROMINOES;
   const base = pool[Math.floor(random() * pool.length)];
   const width = base.shape[0].length;
 

@@ -1,5 +1,9 @@
 import { POINTS } from "../data/constants.js";
 import { getObjectiveStatus, isRunComplete } from "./difficulty.js";
+import {
+  isSpecialStreak,
+  SPECIAL_BLOCK_RATES,
+} from "./specialBalance.js";
 
 export const createAiRaceMetrics = () => ({
   score: 0,
@@ -29,8 +33,10 @@ export const advanceAiRace = (current, runConfig, correct, random = Math.random)
 
     if (random() < 0.2) next.lines += 1;
     if (random() < 0.24) next.matches += 1;
-    if (random() < 0.14) next.fruits += 1;
-    if ([3, 5, 7].includes(next.streak) || random() < 0.12) next.specials += 1;
+    if (random() < SPECIAL_BLOCK_RATES.fruit) next.fruits += 1;
+    if (isSpecialStreak(next.streak) || random() < SPECIAL_BLOCK_RATES.aiRandomSpecial) {
+      next.specials += 1;
+    }
   }
 
   return {

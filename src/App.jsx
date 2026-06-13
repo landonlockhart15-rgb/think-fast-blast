@@ -45,6 +45,7 @@ import {
 import { getArenaAiTurn } from "./game/arenaAi";
 import { advanceAiRace, createAiRaceMetrics } from "./game/aiRace";
 import { applyBoardPower, BOARD_POWERS } from "./game/boardPowers";
+import { getStreakPowerType, SPECIAL_BLOCK_RATES } from "./game/specialBalance";
 import {
   createProfile,
   deleteProfile,
@@ -220,9 +221,9 @@ const readProfileProgress = (profileId) => {
 // One-time achievements. Persisted in stats.unlockedAchievements; surfaced as toasts.
 const ACHIEVEMENTS = {
   perfect: { label: "Quick Thinker", emoji: "⚡", desc: "Answered in under 2.2 seconds" },
-  tnt: { label: "Demolitionist", emoji: "💣", desc: "Forged a TNT block on a x3 streak" },
-  drill: { label: "Driller", emoji: "🌀", desc: "Forged a Drill block on a x5 streak" },
-  lightning: { label: "Storm Caller", emoji: "⚡", desc: "Forged a Lightning Rod on a x7 streak" },
+  tnt: { label: "Demolitionist", emoji: "💣", desc: "Forged a TNT block on a x4 streak" },
+  drill: { label: "Driller", emoji: "🌀", desc: "Forged a Drill block on a x8 streak" },
+  lightning: { label: "Storm Caller", emoji: "⚡", desc: "Forged a Lightning Rod on a x12 streak" },
   streak10: { label: "Untouchable", emoji: "🔥", desc: "Reached a x10 answer streak" },
   line: { label: "Line Cook", emoji: "🧱", desc: "Cleared a full line" },
   bigmatch: { label: "Color Theory", emoji: "🌈", desc: "Cleared a 5+ color match" },
@@ -266,7 +267,7 @@ const ONBOARDING_STEPS = [
   {
     eyebrow: "Blast Big",
     title: "Streaks forge powerful pieces",
-    body: "TNT arrives at x3, the Drill at x5, and Lightning at x7. To win, complete both the score target and the level mission shown on screen.",
+    body: "A special block arrives every four correct answers in a streak, with the strongest powers taking longer to earn. To win, complete both the score target and the level mission shown on screen.",
     icon: "⚡",
   },
 ];
@@ -1054,7 +1055,10 @@ function MenuPreviewBoard() {
     const localRandom = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
     const spawn = () => {
-      const pieceBase = localRandom([...TETROMINOES, ...FRUITS]);
+      const pieceBase =
+        Math.random() < SPECIAL_BLOCK_RATES.arenaFruit
+          ? localRandom(FRUITS)
+          : localRandom(TETROMINOES);
       const width = pieceBase.shape[0].length;
       const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
       return {
@@ -2107,7 +2111,8 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Helper to generate a Power-up block
   const makePowerUp = (piece, streak) => {
-    if (streak === 3) {
+    const powerType = getStreakPowerType(streak);
+    if (powerType === "tnt") {
       return {
         ...piece,
         isTNT: true,
@@ -2116,7 +2121,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         shape: [[1]],
       };
     }
-    if (streak === 5) {
+    if (powerType === "drill") {
       return {
         ...piece,
         isDrill: true,
@@ -2125,7 +2130,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         shape: [[1]],
       };
     }
-    if (streak >= 7) {
+    if (powerType === "lightning") {
       return {
         ...piece,
         isLightning: true,
@@ -2538,7 +2543,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       pieceBase = randomItem(TETROMINOES);
     } else {
       const spawnRoll = Math.random();
-      if (spawnRoll < 0.1) {
+      if (spawnRoll < SPECIAL_BLOCK_RATES.arenaFruit) {
         pieceBase = randomItem(FRUITS);
       } else {
         pieceBase = randomItem(TETROMINOES);
@@ -2864,7 +2869,11 @@ Can you beat my score? Play ThinkFastBlast!`;
       const canSpawnWildcard = stats.unlockedItems?.includes("catalyst_wildcard") || false;
       const spawnRoll = Math.random();
 
-      if (canSpawnBomb && spawnRoll < 0.08) {
+      const bombThreshold = canSpawnBomb ? SPECIAL_BLOCK_RATES.catalystBomb : 0;
+      const wildcardThreshold =
+        bombThreshold + (canSpawnWildcard ? SPECIAL_BLOCK_RATES.catalystWildcard : 0);
+
+      if (canSpawnBomb && spawnRoll < bombThreshold) {
         pieceBase = {
           shape: [[1]],
           color: "bg-rose-600 border border-rose-300 shadow-[0_0_15px_rgba(244,63,94,0.8)] animate-glow-tnt",
@@ -2872,14 +2881,14 @@ Can you beat my score? Play ThinkFastBlast!`;
           emoji: "💣",
           isCatalystBomb: true
         };
-      } else if (canSpawnWildcard && spawnRoll >= 0.08 && spawnRoll < 0.16) {
+      } else if (canSpawnWildcard && spawnRoll >= bombThreshold && spawnRoll < wildcardThreshold) {
         pieceBase = {
           shape: [[1]],
           color: "bg-gradient-to-tr from-yellow-300 via-pink-500 to-indigo-500 border border-white",
           isWildcard: true,
           emoji: "✨"
         };
-      } else if (Math.random() < 0.15) {
+      } else if (Math.random() < SPECIAL_BLOCK_RATES.fruit) {
         pieceBase = randomItem(FRUITS);
       } else {
         pieceBase = randomItem(TETROMINOES);
@@ -2891,7 +2900,11 @@ Can you beat my score? Play ThinkFastBlast!`;
     let isSlime = false;
 
     // Apply Sticky Slime blocks hazard to level 5 & 6 (never on first block!)
-    if (!isFirstBlock && (activeLevel === 5 || activeLevel === 6) && Math.random() < 0.35) {
+    if (
+      !isFirstBlock &&
+      (activeLevel === 5 || activeLevel === 6) &&
+      Math.random() < SPECIAL_BLOCK_RATES.slime
+    ) {
       isSlime = true;
       color = "bg-emerald-700 border-2 border-emerald-400";
       emoji = "🦠";
@@ -4379,20 +4392,21 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       // Check combo power-up conversion
       let newPiece = { ...piece };
-      if (nextStreak === 3) {
+      const streakPower = getStreakPowerType(nextStreak);
+      if (streakPower === "tnt") {
         playSFX("streak");
-        newPiece = makePowerUp(piece, 3);
-        addFloatingText("COMBO x3! TNT Block 💣", piece?.x || 5, piece?.y || 2);
+        newPiece = makePowerUp(piece, nextStreak);
+        addFloatingText(`COMBO x${nextStreak}! TNT Block 💣`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("tnt");
-      } else if (nextStreak === 5) {
+      } else if (streakPower === "drill") {
         playSFX("streak");
-        newPiece = makePowerUp(piece, 5);
-        addFloatingText("COMBO x5! Drill Block 🌀", piece?.x || 5, piece?.y || 2);
+        newPiece = makePowerUp(piece, nextStreak);
+        addFloatingText(`COMBO x${nextStreak}! Drill Block 🌀`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("drill");
-      } else if (nextStreak >= 7) {
+      } else if (streakPower === "lightning") {
         playSFX("streak");
-        newPiece = makePowerUp(piece, 7);
-        addFloatingText("COMBO x7! Lightning Rod ⚡", piece?.x || 5, piece?.y || 2);
+        newPiece = makePowerUp(piece, nextStreak);
+        addFloatingText(`COMBO x${nextStreak}! Lightning Rod ⚡`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("lightning");
       }
 
@@ -6890,7 +6904,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <ul className="space-y-2 font-medium text-slate-300">
                     <li className="flex items-start gap-1.5">⏱ The block falls slowly while the question card is active. Answer quickly!</li>
                     <li className="flex items-start gap-1.5">✓ Correct: You gain controller gravity and placing powers. Speed bonuses exist.</li>
-                    <li className="flex items-start gap-1.5">⚡ Combo streaks: 3, 5, or 7 correct answers convert falling blocks into TNT, Drills, or Lightning.</li>
+                    <li className="flex items-start gap-1.5">⚡ Every four correct answers in one streak earns a special block. TNT arrives at x4, Drill at x8, and Lightning at x12.</li>
                     <li className="flex items-start gap-1.5">✗ Incorrect: The block turns to heavy stone and locks automatically.</li>
                   </ul>
                 </div>
