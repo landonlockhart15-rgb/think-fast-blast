@@ -10,7 +10,7 @@ export const BOARD_POWERS = {
   },
   power_earthquake: {
     name: "Earthquake",
-    emoji: "🌋",
+    emoji: "≋",
     description: "Shatters the lowest occupied layer.",
     cost: 220,
     effect: "earthquake",

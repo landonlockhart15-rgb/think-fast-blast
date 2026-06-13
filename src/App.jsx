@@ -105,6 +105,28 @@ const SHOP_ITEMS = [
   { id: "catalyst_wildcard", name: "Wildcard Block", desc: "Enables rare ✨ block spawns that connect and clear any adjacent colors", cost: 200, type: "block" },
 ];
 
+function EarthquakeIcon({ className = "" }) {
+  return (
+    <svg
+      className={`earthquake-icon ${className}`}
+      viewBox="0 0 48 48"
+      role="img"
+      aria-label="Cracked ground shaking"
+    >
+      <path className="earthquake-icon-wave" d="M4 13h7l3-4 4 8 4-6 4 4h7l3-4 4 7h4" />
+      <path className="earthquake-icon-ground" d="M5 31h11l4-5 5 12 5-9 4 2h9" />
+      <path className="earthquake-icon-crack" d="M24 19l-3 8 5 3-3 9" />
+    </svg>
+  );
+}
+
+function PowerIcon({ powerId, power, className = "" }) {
+  if (powerId === "power_earthquake" || power?.effect === "earthquake") {
+    return <EarthquakeIcon className={className} />;
+  }
+  return <span className={className}>{power?.emoji}</span>;
+}
+
 const getThemeCellColor = (baseColor, themeName) => {
   if (themeName === "theme_retro") {
     return "retro-green-block";
@@ -662,7 +684,7 @@ function StoreItemPreview({ itemId }) {
   if (power) {
     return (
       <div className={`store-power-preview store-power-preview-${power.effect}`} aria-hidden="true">
-        <span>{power.emoji}</span>
+        <PowerIcon powerId={itemId} power={power} />
       </div>
     );
   }
@@ -5433,7 +5455,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                         title={`${power.name}: ${power.description}`}
                         aria-label={`${power.name}${used ? " used" : ""}`}
                       >
-                        <b>{power.emoji}</b>
+                        <b><PowerIcon powerId={id} power={power} /></b>
                         <small>{used ? "USED" : power.name}</small>
                       </button>
                     );

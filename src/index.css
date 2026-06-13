@@ -322,9 +322,12 @@ button {
 
 .menu-preview-board {
   position: relative;
+  isolation: isolate;
   aspect-ratio: 10 / 16;
   width: 190px;
   max-width: 100%;
+  overflow: hidden;
+  contain: layout paint;
   border: 3px solid rgb(103 232 249 / 0.35);
   border-radius: 0.8rem;
   background: #0f172a;
@@ -370,6 +373,8 @@ button {
 }
 
 .menu-preview-grid {
+  position: relative;
+  z-index: 1;
   display: grid;
   width: 100%;
   height: 100%;
@@ -927,7 +932,39 @@ button {
   background: linear-gradient(180deg, transparent 0%, rgb(103 232 249 / 0.13) 48%, transparent 54%);
   content: "";
   pointer-events: none;
+  z-index: 2;
   animation: previewScan 2.8s linear infinite;
+}
+
+.earthquake-icon {
+  display: inline-block;
+  width: 1.35em;
+  height: 1.35em;
+  overflow: visible;
+  color: #fbbf24;
+  filter: drop-shadow(0 0 5px rgb(251 191 36 / 0.45));
+  vertical-align: middle;
+}
+
+.earthquake-icon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.earthquake-icon-wave {
+  stroke-width: 3;
+  opacity: 0.8;
+}
+
+.earthquake-icon-ground {
+  stroke-width: 4;
+}
+
+.earthquake-icon-crack {
+  stroke: #f8fafc;
+  stroke-width: 3;
 }
 
 .power-deck {
@@ -994,6 +1031,13 @@ button {
 .store-power-preview span {
   font-size: 3.3rem;
   filter: drop-shadow(0 0 14px rgb(255 255 255 / 0.35));
+  animation: storePowerFloat 1.8s ease-in-out infinite;
+}
+
+.store-power-preview .earthquake-icon {
+  width: 4.4rem;
+  height: 4.4rem;
+  filter: drop-shadow(0 0 14px rgb(251 191 36 / 0.4));
   animation: storePowerFloat 1.8s ease-in-out infinite;
 }
 
