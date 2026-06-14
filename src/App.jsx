@@ -1418,6 +1418,7 @@ export default function App() {
   const [questionsAnsweredThisLevel, setQuestionsAnsweredThisLevel] = useState(0);
   const [misses, setMisses] = useState(0);
   const [lastCorrectAnswer, setLastCorrectAnswer] = useState("");
+  const [latestPowerUp, setLatestPowerUp] = useState(null);
 
   const [totalScore, setTotalScore] = useState(0);
   const [isControllable, setIsControllable] = useState(true);
@@ -2969,6 +2970,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setActivePiece(newPiece);
     setNextPiece(queuedPiece);
     setHoldUsed(false);
+    setLatestPowerUp(null);
     setQuestionStartTime(Date.now());
   }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd]);
 
@@ -4424,17 +4426,17 @@ Can you beat my score? Play ThinkFastBlast!`;
       let newPiece = { ...piece };
       const streakPower = getStreakPowerType(nextStreak);
       if (streakPower === "tnt") {
-        playSFX("streak");
+        setLatestPowerUp("explosion");
         newPiece = makePowerUp(piece, nextStreak);
         addFloatingText(`COMBO x${nextStreak}! TNT Block 💣`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("tnt");
       } else if (streakPower === "drill") {
-        playSFX("streak");
+        setLatestPowerUp("drill");
         newPiece = makePowerUp(piece, nextStreak);
         addFloatingText(`COMBO x${nextStreak}! Drill Block 🌀`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("drill");
       } else if (streakPower === "lightning") {
-        playSFX("streak");
+        setLatestPowerUp("thunder");
         newPiece = makePowerUp(piece, nextStreak);
         addFloatingText(`COMBO x${nextStreak}! Lightning Rod ⚡`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("lightning");
@@ -4444,7 +4446,6 @@ Can you beat my score? Play ThinkFastBlast!`;
       setFeedback(`Correct!${bonusText} You have control.`);
       setGameState("dropping");
     } else {
-      playSFX("incorrect");
       triggerFlash("danger");
       vibrate([60, 30, 90]);
       setCorrectStreak(0);
@@ -4548,6 +4549,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setQuestionsAnsweredThisLevel(0);
     setMisses(0);
     setLastCorrectAnswer("");
+    setLatestPowerUp(null);
     setTotalScore(0);
     setIsControllable(true);
     setFeedback("");
@@ -4662,6 +4664,15 @@ Can you beat my score? Play ThinkFastBlast!`;
     <div className={`h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation ${reduceMotion ? "reduced-motion" : ""} ${highContrast ? "high-contrast" : ""}`}>
       <Confetti active={gameState === "level_win"} />
       <ScreenFlash tone={flashColor} />
+      <Game
+        levelId={level}
+        currentScore={totalScore}
+        previousBest={previousBest}
+        correctCount={questionsAnsweredThisLevel}
+        incorrectCount={misses}
+        powerUp={latestPowerUp}
+        headless={true}
+      />
 
       {showOnboarding && gameState === "start" && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/88 p-4 backdrop-blur-md">
@@ -7106,7 +7117,14 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <span className="text-yellow-300 ml-auto">Max Streak: {maxStreak}</span>
                 </div>
 
-                <Game levelId={level} currentScore={totalScore} previousBest={previousBest} />
+                <Game
+                  levelId={level}
+                  currentScore={totalScore}
+                  previousBest={previousBest}
+                  correctCount={questionsAnsweredThisLevel}
+                  incorrectCount={misses}
+                  powerUp={latestPowerUp}
+                />
 
                 {runMode === "campaign" && level < FINAL_LEVEL_ID ? (
                   <div className="flex flex-wrap gap-4 justify-center md:justify-start">
@@ -7184,7 +7202,14 @@ Can you beat my score? Play ThinkFastBlast!`;
                   </div>
                 </div>
 
-                <Game levelId={level} currentScore={totalScore} previousBest={previousBest} />
+                <Game
+                  levelId={level}
+                  currentScore={totalScore}
+                  previousBest={previousBest}
+                  correctCount={questionsAnsweredThisLevel}
+                  incorrectCount={misses}
+                  powerUp={latestPowerUp}
+                />
 
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                   <button type="button" onClick={() => startLevel(level, runMode === "ai_race" ? "ai_race" : undefined)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
