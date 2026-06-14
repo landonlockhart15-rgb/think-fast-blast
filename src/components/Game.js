@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from "react";
 import { getHighScore } from "../utils/storage.js";
 
-export default function Game({ levelId, currentScore }) {
+export default function Game({ levelId, currentScore, previousBest }) {
   const [highScore, setHighScore] = useState(0);
 
   useEffect(() => {
-    setHighScore(getHighScore(levelId));
-  }, [levelId, currentScore]);
+    if (previousBest !== undefined) {
+      setHighScore(Math.max(previousBest, currentScore));
+    } else {
+      setHighScore(getHighScore(levelId));
+    }
+  }, [levelId, currentScore, previousBest]);
+
+  const isNewRecord = previousBest !== undefined
+    ? currentScore > previousBest && previousBest > 0
+    : false;
 
   return React.createElement(
     "div",
@@ -32,7 +40,7 @@ export default function Game({ levelId, currentScore }) {
           `${highScore} pts`
         )
       ),
-      currentScore >= highScore && highScore > 0
+      isNewRecord
         ? React.createElement(
             "div",
             { className: "text-xs text-emerald-400 font-black animate-pulse mt-1", "data-testid": "new-record-msg" },

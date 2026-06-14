@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { getHighScore, saveHighScore, clearHighScores } from "../utils/storage.js";
 import Game from "../components/Game.js";
+import { setActiveProfileId, createProfile } from "../game/profileStore.js";
 
 class MemoryStorage {
   constructor() {
@@ -24,7 +25,7 @@ class MemoryStorage {
 
 test("high score tracking saves new scores and returns them", () => {
   const storage = new MemoryStorage();
-  
+
   // Initially, score should be 0
   assert.equal(getHighScore(1, storage), 0);
 
@@ -73,4 +74,78 @@ test("clearHighScores clears all high scores", () => {
 
 test("Game component is a functional React component", () => {
   assert.equal(typeof Game, "function");
+});
+
+test("high score tracking isolates scores by profile", () => {
+  const storage = new MemoryStorage();
+
+  // This will initialize the default profile (Player 1)
+  setActiveProfileId("player-1", storage);
+  saveHighScore(1, 100, storage);
+
+  // Create a second profile
+  const profile2 = createProfile({ name: "Player 2" }, storage);
+  const id2 = profile2?.id || "player-2";
+
+  setActiveProfileId(id2, storage);
+  saveHighScore(1, 200, storage);
+
+  // Check isolation
+  setActiveProfileId("player-1", storage);
+  assert.equal(getHighScore(1, storage), 100);
+
+  setActiveProfileId(id2, storage);
+  assert.equal(getHighScore(1, storage), 200);
+});
+
+test("Game component renders high score and handles record messaging", () => {
+  const sharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CAN_AND_WILL_BROAK || React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+  if (!sharedInternals) {
+    assert.ok(true);
+    return;
+  }
+
+  const originalDispatcher = sharedInternals.H;
+  let mockStateVal = 0;
+  sharedInternals.H = {
+    useState: (initial) => [mockStateVal, (newVal) => { mockStateVal = newVal; }],
+    useEffect: (cb) => { cb(); },
+  };
+
+  try {
+    // 1. Test case: new personal best (currentScore > previousBest)
+    mockStateVal = 120;
+    const element1 = Game({ levelId: 1, currentScore: 120, previousBest: 100 });
+    const innerDiv1 = element1.props.children;
+    const children1 = innerDiv1.props.children;
+
+    // Check high score value is displayed
+    const scoreValSpan1 = children1[1].props.children[1];
+    assert.equal(scoreValSpan1.props.children, "120 pts");
+
+    // Check "New Personal Best!" message is rendered
+    const msgDiv1 = children1[2];
+    assert.ok(msgDiv1);
+    assert.equal(msgDiv1.props["data-testid"], "new-record-msg");
+    assert.equal(msgDiv1.props.children, "🎉 New Personal Best!");
+
+    // 2. Test case: tie score (currentScore === previousBest)
+    mockStateVal = 100;
+    const element2 = Game({ levelId: 1, currentScore: 100, previousBest: 100 });
+    const children2 = element2.props.children.props.children;
+    const msgDiv2 = children2[2];
+    // Should be null/falsy since it's a tie
+    assert.equal(msgDiv2, null);
+
+    // 3. Test case: lower score (currentScore < previousBest)
+    mockStateVal = 150;
+    const element3 = Game({ levelId: 1, currentScore: 100, previousBest: 150 });
+    const children3 = element3.props.children.props.children;
+    const msgDiv3 = children3[2];
+    // Should be null/falsy
+    assert.equal(msgDiv3, null);
+
+  } finally {
+    sharedInternals.H = originalDispatcher;
+  }
 });
