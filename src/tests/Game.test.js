@@ -217,35 +217,15 @@ test("Game component plays correct, incorrect, and power-up SFX", () => {
     });
     assert.equal(lastPlayed, "thunder");
 
-    // 5. Test button clicks to trigger SFX directly
-    const element = Game({
+    // 5. Test headless mode returns null
+    const headlessElement = Game({
       levelId: 1,
       currentScore: 100,
       previousBest: 100,
       playSFX: mockPlaySFX,
-      powerUp: "streak",
+      headless: true,
     });
-
-    const children = element.props.children.props.children;
-    const buttonsContainer = children[3];
-    assert.ok(buttonsContainer);
-    const buttons = buttonsContainer.props.children;
-    assert.equal(buttons.length, 3);
-
-    // Click Correct SFX button
-    lastPlayed = null;
-    buttons[0].props.onClick();
-    assert.equal(lastPlayed, "correct");
-
-    // Click Incorrect SFX button
-    lastPlayed = null;
-    buttons[1].props.onClick();
-    assert.equal(lastPlayed, "incorrect");
-
-    // Click Power-Up SFX button
-    lastPlayed = null;
-    buttons[2].props.onClick();
-    assert.equal(lastPlayed, "streak");
+    assert.equal(headlessElement, null);
 
   } finally {
     sharedInternals.H = originalDispatcher;

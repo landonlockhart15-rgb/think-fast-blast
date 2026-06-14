@@ -16,6 +16,7 @@ export default function Game({
   correctCount = 0,
   incorrectCount = 0,
   powerUp = null,
+  headless = false,
 }) {
   const [highScore, setHighScore] = useState(0);
 
@@ -63,6 +64,10 @@ export default function Game({
     ? currentScore > previousBest && previousBest > 0
     : false;
 
+  if (headless) {
+    return null;
+  }
+
   return React.createElement(
     "div",
     {
@@ -93,42 +98,7 @@ export default function Game({
             { className: "text-xs text-emerald-400 font-black animate-pulse mt-1", "data-testid": "new-record-msg" },
             "🎉 New Personal Best!"
           )
-        : null,
-      React.createElement(
-        "div",
-        { className: "flex gap-2 mt-4 justify-center" },
-        React.createElement(
-          "button",
-          {
-            className: "px-3 py-1 bg-green-600 hover:bg-green-500 text-white rounded text-xs font-bold transition",
-            "data-testid": "btn-sfx-correct",
-            onClick: () => playSFX("correct"),
-          },
-          "Correct SFX"
-        ),
-        React.createElement(
-          "button",
-          {
-            className: "px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-xs font-bold transition",
-            "data-testid": "btn-sfx-incorrect",
-            onClick: () => playSFX("incorrect"),
-          },
-          "Incorrect SFX"
-        ),
-        React.createElement(
-          "button",
-          {
-            className: "px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded text-xs font-bold transition",
-            "data-testid": "btn-sfx-powerup",
-            onClick: () => {
-              const knownPowerUps = ["streak", "mutator", "thunder", "explosion", "drill"];
-              const sfxType = knownPowerUps.includes(powerUp) ? powerUp : "streak";
-              playSFX(sfxType);
-            },
-          },
-          "Power-Up SFX"
-        )
-      )
+        : null
     )
   );
 }
