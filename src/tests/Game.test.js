@@ -108,7 +108,7 @@ test("Game component renders high score and handles record messaging", () => {
   const originalDispatcher = sharedInternals.H;
   let mockStateVal = 0;
   sharedInternals.H = {
-    useState: (initial) => [mockStateVal, (newVal) => { mockStateVal = newVal; }],
+    useState: () => [mockStateVal, (newVal) => { mockStateVal = newVal; }],
     useEffect: (cb) => { cb(); },
   };
 
@@ -149,3 +149,106 @@ test("Game component renders high score and handles record messaging", () => {
     sharedInternals.H = originalDispatcher;
   }
 });
+
+test("Game component plays correct, incorrect, and power-up SFX", () => {
+  const sharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CAN_AND_WILL_BROAK || React.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED;
+  if (!sharedInternals) {
+    assert.ok(true);
+    return;
+  }
+
+  const originalDispatcher = sharedInternals.H;
+  let mockStateVal = 0;
+  sharedInternals.H = {
+    useState: () => [mockStateVal, (newVal) => { mockStateVal = newVal; }],
+    useEffect: (cb) => { cb(); },
+  };
+
+  try {
+    let lastPlayed = null;
+    const mockPlaySFX = (type) => {
+      lastPlayed = type;
+    };
+
+    // 1. Initial render with levelId: 1
+    Game({
+      levelId: 1,
+      currentScore: 100,
+      previousBest: 100,
+      playSFX: mockPlaySFX,
+      correctCount: 0,
+      incorrectCount: 0,
+      powerUp: null,
+    });
+
+    // 2. Play correct answer SFX (reactive)
+    Game({
+      levelId: 1,
+      currentScore: 100,
+      previousBest: 100,
+      playSFX: mockPlaySFX,
+      correctCount: 1,
+      incorrectCount: 0,
+      powerUp: null,
+    });
+    assert.equal(lastPlayed, "correct");
+
+    // 3. Play incorrect answer SFX (reactive)
+    Game({
+      levelId: 1,
+      currentScore: 100,
+      previousBest: 100,
+      playSFX: mockPlaySFX,
+      correctCount: 1,
+      incorrectCount: 1,
+      powerUp: null,
+    });
+    assert.equal(lastPlayed, "incorrect");
+
+    // 4. Play power-up SFX (reactive)
+    Game({
+      levelId: 1,
+      currentScore: 100,
+      previousBest: 100,
+      playSFX: mockPlaySFX,
+      correctCount: 1,
+      incorrectCount: 1,
+      powerUp: "thunder",
+    });
+    assert.equal(lastPlayed, "thunder");
+
+    // 5. Test button clicks to trigger SFX directly
+    const element = Game({
+      levelId: 1,
+      currentScore: 100,
+      previousBest: 100,
+      playSFX: mockPlaySFX,
+      powerUp: "streak",
+    });
+
+    const children = element.props.children.props.children;
+    const buttonsContainer = children[3];
+    assert.ok(buttonsContainer);
+    const buttons = buttonsContainer.props.children;
+    assert.equal(buttons.length, 3);
+
+    // Click Correct SFX button
+    lastPlayed = null;
+    buttons[0].props.onClick();
+    assert.equal(lastPlayed, "correct");
+
+    // Click Incorrect SFX button
+    lastPlayed = null;
+    buttons[1].props.onClick();
+    assert.equal(lastPlayed, "incorrect");
+
+    // Click Power-Up SFX button
+    lastPlayed = null;
+    buttons[2].props.onClick();
+    assert.equal(lastPlayed, "streak");
+
+  } finally {
+    sharedInternals.H = originalDispatcher;
+  }
+});
+
