@@ -59,6 +59,8 @@ import {
 } from "./game/profileStore";
 import Confetti from "./game/Confetti";
 import OnlineArena from "./game/OnlineArenaView";
+import { saveHighScore } from "./utils/storage";
+import Game from "./components/Game";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
 const RECENT_QUESTIONS_STORAGE_KEY = "think-fast-blast-recent-questions";
@@ -2227,6 +2229,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
+        saveHighScore(level, finalScore);
 
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -2277,6 +2280,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
+        saveHighScore(level, finalScore);
 
         const newStats = {
           ...prevStats,
@@ -7098,6 +7102,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <span className="text-yellow-300 ml-auto">Max Streak: {maxStreak}</span>
                 </div>
 
+                <Game levelId={level} currentScore={totalScore} />
+
                 {runMode === "campaign" && level < FINAL_LEVEL_ID ? (
                   <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                     <button type="button" onClick={() => startLevel(level + 1)} className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(16,185,129,0.4)] transform transition hover:scale-105 border border-white/20">
@@ -7173,6 +7179,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                     <span className="text-yellow-300 ml-2">Max Streak: {maxStreak}</span>
                   </div>
                 </div>
+
+                <Game levelId={level} currentScore={totalScore} />
 
                 <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                   <button type="button" onClick={() => startLevel(level, runMode === "ai_race" ? "ai_race" : undefined)} className="bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-3 md:py-4 px-6 md:px-8 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.4)] transform transition hover:scale-105 border border-white/20">
