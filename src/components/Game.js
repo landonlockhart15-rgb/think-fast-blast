@@ -18,16 +18,18 @@ export default function Game({
   powerUp = null,
   headless = false,
 }) {
-  const [highScore, setHighScore] = useState(0);
+  const [localHighScore, setLocalHighScore] = useState(0);
 
   useEffect(() => {
-    if (previousBest !== undefined) {
+    if (previousBest === undefined) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHighScore(Math.max(previousBest, currentScore));
-    } else {
-      setHighScore(getHighScore(levelId));
+      setLocalHighScore(getHighScore(levelId));
     }
-  }, [levelId, currentScore, previousBest]);
+  }, [levelId, previousBest]);
+
+  const highScore = previousBest !== undefined
+    ? Math.max(previousBest, currentScore)
+    : localHighScore;
 
   useEffect(() => {
     // Reset caches on level change
