@@ -4,6 +4,7 @@ import React from "react";
 import { getHighScore, saveHighScore, clearHighScores } from "../utils/storage.js";
 import Game from "../components/Game.js";
 import { setActiveProfileId, createProfile } from "../game/profileStore.js";
+import { isMobileDevice, drawSparks, drawParticles } from "../utils/render.js";
 
 class MemoryStorage {
   constructor() {
@@ -230,5 +231,99 @@ test("Game component plays correct, incorrect, and power-up SFX", () => {
   } finally {
     sharedInternals.H = originalDispatcher;
   }
+});
+
+test("mobile performance rendering optimizations", () => {
+  // Mock window/navigator for mobile detection
+  const originalNavigator = globalThis.navigator;
+  const originalWindow = globalThis.window;
+
+  try {
+    Object.defineProperty(globalThis, "navigator", {
+      value: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1" },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "window", {
+      value: { innerWidth: 375 },
+      writable: true,
+      configurable: true,
+    });
+    assert.equal(isMobileDevice(), true);
+
+    Object.defineProperty(globalThis, "navigator", {
+      value: { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" },
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "window", {
+      value: { innerWidth: 1024 },
+      writable: true,
+      configurable: true,
+    });
+    assert.equal(isMobileDevice(), false);
+  } finally {
+    if (originalNavigator === undefined) {
+      delete globalThis.navigator;
+    } else {
+      Object.defineProperty(globalThis, "navigator", { value: originalNavigator, configurable: true });
+    }
+    if (originalWindow === undefined) {
+      delete globalThis.window;
+    } else {
+      Object.defineProperty(globalThis, "window", { value: originalWindow, configurable: true });
+    }
+  }
+});
+
+test("render optimizations bypass expensive canvas operations on mobile", () => {
+  const mockCtx = {
+    clearRect: () => {},
+    fillRect: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    save: () => { mockCtx.saveCount++; },
+    restore: () => { mockCtx.restoreCount++; },
+    translate: () => {},
+    rotate: () => {},
+    shadowBlur: 0,
+    shadowColor: "",
+    globalAlpha: 1.0,
+    saveCount: 0,
+    restoreCount: 0,
+  };
+
+  const particles = [
+    { x: 10, y: 10, vx: 1, vy: 1, size: 5, color: "#fff", alpha: 1.0, decay: 0.01, gravity: 0.1, kind: "spark", rotation: 0.5, spin: 0.1 }
+  ];
+
+  // Mobile mode: drawParticles should NOT call save/restore or set shadowBlur
+  mockCtx.saveCount = 0;
+  mockCtx.restoreCount = 0;
+  mockCtx.shadowBlur = 0;
+  drawParticles(mockCtx, [...particles], true);
+  assert.equal(mockCtx.saveCount, 0);
+  assert.equal(mockCtx.restoreCount, 0);
+  assert.equal(mockCtx.shadowBlur, 0);
+
+  // Mobile mode: drawSparks should NOT set shadowBlur
+  drawSparks(mockCtx, [...particles], 100, 100, true);
+  assert.equal(mockCtx.shadowBlur, 0);
+
+  // Desktop mode: drawParticles SHOULD call save/restore and set shadowBlur
+  mockCtx.saveCount = 0;
+  mockCtx.restoreCount = 0;
+  drawParticles(mockCtx, [...particles], false);
+  assert.equal(mockCtx.saveCount, 1);
+  assert.equal(mockCtx.restoreCount, 1);
+  assert.equal(mockCtx.shadowBlur, 6);
+
+  // Desktop mode: drawSparks SHOULD set shadowBlur and then reset it to 0
+  drawSparks(mockCtx, [...particles], 100, 100, false);
+  assert.equal(mockCtx.shadowBlur, 0);
 });
 

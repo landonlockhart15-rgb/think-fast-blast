@@ -60,6 +60,7 @@ import {
 import Confetti from "./game/Confetti";
 import OnlineArena from "./game/OnlineArenaView";
 import { saveHighScore } from "./utils/storage";
+import { isMobileDevice, drawSparks, drawParticles } from "./utils/render";
 import Game from "./components/Game";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
@@ -714,7 +715,9 @@ function BrainSparksCanvas() {
     let width = (canvas.width = canvas.offsetWidth);
     let height = (canvas.height = canvas.offsetHeight);
 
-    const particles = Array.from({ length: 30 }, () => ({
+    const isMobile = isMobileDevice();
+    const particleCount = isMobile ? 15 : 30;
+    const particles = Array.from({ length: particleCount }, () => ({
       x: Math.random() * width,
       y: Math.random() * height,
       vx: (Math.random() - 0.5) * 1.5,
@@ -731,42 +734,7 @@ function BrainSparksCanvas() {
     window.addEventListener("resize", resizeHandler);
 
     const draw = () => {
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.4)";
-      ctx.fillRect(0, 0, width, height);
-
-      particles.forEach((p) => {
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (p.x < 0) p.x = width;
-        if (p.x > width) p.x = 0;
-        if (p.y < 0) p.y = height;
-        if (p.y > height) p.y = 0;
-
-        particles.forEach((other) => {
-          const dx = p.x - other.x;
-          const dy = p.y - other.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 60) {
-            ctx.strokeStyle = `rgba(168, 85, 247, ${0.12 * (1 - dist / 60)})`;
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(other.x, other.y);
-            ctx.stroke();
-          }
-        });
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.shadowBlur = 5;
-        ctx.shadowColor = p.color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      });
-
+      drawSparks(ctx, particles, width, height, isMobile);
       animationFrameId = requestAnimationFrame(draw);
     };
 
@@ -810,12 +778,15 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
       flood: { colors: ["#e0f2fe", "#38bdf8", "#2563eb", "#ffffff"], count: 20, speed: 6.4, gravity: 0.12, kind: "orb" },
     };
     const style = styles[effectType] || styles.match;
+    const isMobile = isMobileDevice();
+    const countMultiplier = isMobile ? 0.5 : 1.0;
+    const count = Math.max(1, Math.round(style.count * countMultiplier));
 
     explodingCells.forEach((cell) => {
       const cx = (cell.x + 0.5) * cellW;
       const cy = (cell.y + 0.5) * cellH;
 
-      for (let i = 0; i < style.count; i++) {
+      for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
         const speed = Math.random() * style.speed + 1;
         particlesRef.current.push({
@@ -844,7 +815,8 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
 
       const width = canvas.width;
       const height = canvas.height;
-      const count = 25;
+      const isMobile = isMobileDevice();
+      const count = isMobile ? 12 : 25;
       for (let i = 0; i < count; i++) {
         particlesRef.current.push({
           x: Math.random() * width,
@@ -871,43 +843,11 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    const isMobile = isMobileDevice();
     let animationId;
     const updateAndDraw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const particles = particlesRef.current;
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += p.gravity || 0;
-        p.rotation += p.spin || 0;
-        p.alpha -= p.decay;
-
-        if (p.alpha <= 0) {
-          particles.splice(i, 1);
-          continue;
-        }
-
-        ctx.save();
-        ctx.globalAlpha = p.alpha;
-        ctx.fillStyle = p.color;
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = p.color;
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rotation || 0);
-        if (p.kind === "spark") {
-          ctx.fillRect(-p.size * 1.7, -0.8, p.size * 3.4, 1.6);
-        } else if (p.kind === "shard" || p.kind === "debris") {
-          ctx.fillRect(-p.size, -p.size * 0.45, p.size * 2, p.size * 0.9);
-        } else {
-          ctx.beginPath();
-          ctx.arc(0, 0, p.size, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        ctx.restore();
-      }
-
+      drawParticles(ctx, particlesRef.current, isMobile);
       animationId = requestAnimationFrame(updateAndDraw);
     };
 
