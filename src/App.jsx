@@ -59,7 +59,6 @@ import {
 } from "./game/profileStore";
 import Confetti from "./game/Confetti";
 import OnlineArena from "./game/OnlineArenaView";
-import { saveHighScore } from "./utils/storage";
 import { isMobileDevice, drawSparks, drawParticles } from "./utils/render";
 import Game from "./components/Game";
 
@@ -2173,7 +2172,6 @@ Can you beat my score? Play ThinkFastBlast!`;
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
-        saveHighScore(level, finalScore);
 
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -2224,7 +2222,6 @@ Can you beat my score? Play ThinkFastBlast!`;
         const updatedHighScores = { ...prevStats.highScores };
         const previousBest = updatedHighScores[level] || 0;
         updatedHighScores[level] = Math.max(previousBest, finalScore);
-        saveHighScore(level, finalScore);
 
         const newStats = {
           ...prevStats,

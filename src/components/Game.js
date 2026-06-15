@@ -1,27 +1,17 @@
-import React, { useState, useEffect } from "react";
-import { getHighScore } from "../utils/storage.js";
+import React from "react";
 
+// Level-end high-score card. Reads ONLY from props: the canonical per-level best
+// lives in App's `stats.highScores` (persisted under the stats storage key) and
+// is passed in as `previousBest`. This component intentionally keeps no store of
+// its own — an earlier autonomous change added a second parallel high-score store
+// that could disagree with the real one; that store has been removed.
 export default function Game({
   levelId,
   currentScore,
-  previousBest,
+  previousBest = 0,
 }) {
-  const [localHighScore, setLocalHighScore] = useState(0);
-
-  useEffect(() => {
-    if (previousBest === undefined) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLocalHighScore(getHighScore(levelId));
-    }
-  }, [levelId, previousBest]);
-
-  const highScore = previousBest !== undefined
-    ? Math.max(previousBest, currentScore)
-    : localHighScore;
-
-  const isNewRecord = previousBest !== undefined
-    ? currentScore > previousBest && previousBest > 0
-    : false;
+  const highScore = Math.max(previousBest, currentScore);
+  const isNewRecord = currentScore > previousBest && previousBest > 0;
 
   return React.createElement(
     "div",
