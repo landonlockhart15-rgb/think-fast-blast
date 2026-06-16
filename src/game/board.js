@@ -12,15 +12,19 @@ export const shuffleArray = (array) => {
   return newArr;
 };
 
-export const checkCollision = (piece, currentBoard) => {
+export const checkCollision = (piece, currentBoard, inverseGravity = false) => {
   for (let y = 0; y < piece.shape.length; y += 1) {
     for (let x = 0; x < piece.shape[y].length; x += 1) {
       if (!piece.shape[y][x]) continue;
 
       const boardX = piece.x + x;
       const boardY = piece.y + y;
-      const isOutOfBounds =
-        boardX < 0 || boardX >= BOARD_WIDTH || boardY >= BOARD_HEIGHT;
+      let isOutOfBounds = boardX < 0 || boardX >= BOARD_WIDTH;
+      if (inverseGravity) {
+        isOutOfBounds = isOutOfBounds || boardY < 0;
+      } else {
+        isOutOfBounds = isOutOfBounds || boardY >= BOARD_HEIGHT;
+      }
       const hitsPlacedBlock =
         boardY >= 0 && boardY < BOARD_HEIGHT && currentBoard[boardY][boardX] !== null;
 

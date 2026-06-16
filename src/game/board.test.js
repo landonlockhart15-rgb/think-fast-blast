@@ -17,6 +17,12 @@ test("checkCollision treats the board floor as a collision without reading past 
   assert.equal(checkCollision(piece, createEmptyBoard()), true);
 });
 
+test("checkCollision treats the board ceiling as a collision under inverse gravity", () => {
+  const piece = { shape: [[1]], x: 0, y: -1 };
+
+  assert.equal(checkCollision(piece, createEmptyBoard(), true), true);
+});
+
 test("findConnectedColorMatches clears any orthogonally touching group of five", () => {
   const board = createEmptyBoard();
   const red = { color: "bg-red-500" };

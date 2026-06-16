@@ -213,6 +213,37 @@ const readBooleanPreference = (key, fallback) => {
 const randomItem = (items) => items[Math.floor(Math.random() * items.length)];
 const FINAL_LEVEL_ID = LEVELS.at(-1).id;
 
+const MUTATOR_DETAILS = {
+  double_drop: {
+    name: "Double Drop",
+    desc: "Two blocks spawn simultaneously on opposite sides!",
+    emoji: "♊",
+    color: "from-amber-600 to-orange-500 text-amber-100 border-amber-500/30 bg-amber-950/20",
+    glow: "shadow-amber-500/20"
+  },
+  inverse_gravity: {
+    name: "Inverse Gravity",
+    desc: "Blocks rise from the bottom instead of falling!",
+    emoji: "⬆",
+    color: "from-indigo-600 to-purple-500 text-indigo-100 border-indigo-500/30 bg-indigo-950/20",
+    glow: "shadow-indigo-500/20"
+  },
+  dopamine_rush: {
+    name: "Dopamine Rush",
+    desc: "2x multiplier on all scores, but blocks drop twice as fast!",
+    emoji: "🧠",
+    color: "from-pink-600 to-rose-500 text-pink-100 border-pink-500/30 bg-pink-950/20",
+    glow: "shadow-pink-500/20"
+  },
+  chaos_deck: {
+    name: "Chaos Deck",
+    desc: "Every question is pulled from a completely random level category!",
+    emoji: "🌀",
+    color: "from-cyan-600 to-blue-500 text-cyan-100 border-cyan-500/30 bg-cyan-950/20",
+    glow: "shadow-cyan-500/20"
+  }
+};
+
 const readSavedProgress = () => {
   try {
     const saved = Number.parseInt(readScopedValue(PROGRESS_STORAGE_KEY), 10);
@@ -1371,6 +1402,10 @@ export default function App() {
   const [flashColor, setFlashColor] = useState(null);
   const [shareFeedback, setShareFeedback] = useState("");
 
+  const [activeMutator, setActiveMutator] = useState(null);
+  const [wheelIndex, setWheelIndex] = useState(0);
+  const [wheelState, setWheelState] = useState("idle"); // "idle" | "spinning" | "selected"
+
   const [masterVol, setMasterVolState] = useState(() => getVolumeSettings().masterVolume);
   const [musicVol, setMusicVolState] = useState(() => getVolumeSettings().musicVolume);
   const [sfxVol, setSfxVolState] = useState(() => getVolumeSettings().sfxVolume);
@@ -1822,6 +1857,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       misses,
       questionsSinceLastRise,
       runMetrics,
+      activeMutator,
       // Arena
       board2,
       activePiece2,
@@ -1834,11 +1870,43 @@ Can you beat my score? Play ThinkFastBlast!`;
       arenaMode,
       aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
   useEffect(() => {
     saveProgress(maxUnlockedLevel);
   }, [maxUnlockedLevel]);
+
+  useEffect(() => {
+    if (gameState !== "intro" && gameState !== "arena_intro") {
+      return undefined;
+    }
+
+    const isSP = runMode === "campaign" || runMode === "custom";
+    if (!isSP || !activeMutator) {
+      return undefined;
+    }
+
+    const mutatorKeys = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck"];
+    const interval = setInterval(() => {
+      setWheelIndex((prev) => (prev + 1) % mutatorKeys.length);
+      playSFX("button");
+    }, 100);
+
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      const finalIndex = mutatorKeys.indexOf(activeMutator);
+      if (finalIndex !== -1) {
+        setWheelIndex(finalIndex);
+      }
+      setWheelState("selected");
+      playSFX("unlock");
+    }, 2200);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [gameState, activeMutator, runMode]);
 
   const prepareOnboardingDrafts = useCallback((profile, savedLevel = 1) => {
     setOnboardingNameDraft(profile?.name?.startsWith("Player ") ? "" : profile?.name || "");
@@ -2069,7 +2137,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     window.setTimeout(() => {
       setBoard(result.board);
       setExplodingCells([]);
-      setTotalScore((score) => score + result.cleared * 2);
+      const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+      setTotalScore((score) => score + result.cleared * 2 * (isDopamine ? 2 : 1));
     }, reduceMotion ? 120 : 520);
   }, [addFloatingText, pushToast, reduceMotion, stats.unlockedItems, triggerFlash, triggerShake, usedPowers, vibrate]);
 
@@ -2892,13 +2961,16 @@ Can you beat my score? Play ThinkFastBlast!`;
     const queuedPiece = createPieceForLevel(activeLevel, false);
     const width = pieceBase.shape[0].length;
     const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
+    const isInverse = stateRef.current.activeMutator === "inverse_gravity";
+    const height = pieceBase.shape.length;
+    const y = isInverse ? BOARD_HEIGHT - height : 0;
     const newPiece = {
       ...pieceBase,
       x,
-      y: 0,
+      y,
     };
 
-    if (checkCollision(newPiece, stateRef.current.board)) {
+    if (checkCollision(newPiece, stateRef.current.board, isInverse)) {
       handleGameEnd(false, totalScore);
       return;
     }
@@ -2907,7 +2979,60 @@ Can you beat my score? Play ThinkFastBlast!`;
     setNextPiece(queuedPiece);
     setHoldUsed(false);
     setQuestionStartTime(Date.now());
-  }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd]);
+
+    // Double Drop mutator: spawns a second block that immediately drops/locks
+    if (stateRef.current.activeMutator === "double_drop" && !isFirstBlock) {
+      const secondPieceBase = createPieceForLevel(activeLevel, false);
+      const secondWidth = secondPieceBase.shape[0].length;
+      let secondX = x < BOARD_WIDTH / 2 ? BOARD_WIDTH - secondWidth : 0;
+      const secondHeight = secondPieceBase.shape.length;
+      const secondY = isInverse ? BOARD_HEIGHT - secondHeight : 0;
+      const secondPiece = {
+        ...secondPieceBase,
+        x: secondX,
+        y: secondY,
+      };
+
+      if (!checkCollision(secondPiece, stateRef.current.board, isInverse)) {
+        let dropY = secondPiece.y;
+        if (isInverse) {
+          while (!checkCollision({ ...secondPiece, y: dropY - 1 }, stateRef.current.board, true)) {
+            dropY -= 1;
+          }
+        } else {
+          while (!checkCollision({ ...secondPiece, y: dropY + 1 }, stateRef.current.board)) {
+            dropY += 1;
+          }
+        }
+        
+        const nextBoard = stateRef.current.board.map((row) => [...row]);
+        secondPieceBase.shape.forEach((row, shapeY) => {
+          row.forEach((value, shapeX) => {
+            if (!value) return;
+            const boardY = dropY + shapeY;
+            const boardX = secondX + shapeX;
+            if (boardY >= 0 && boardY < BOARD_HEIGHT) {
+              nextBoard[boardY][boardX] = {
+                color: secondPieceBase.color,
+                isFruit: secondPieceBase.isFruit || false,
+                fruitType: secondPieceBase.fruitType || "",
+                emoji: secondPieceBase.emoji || "",
+                isStone: secondPieceBase.isStone || false,
+                isTNT: secondPieceBase.isTNT || false,
+                isDrill: secondPieceBase.isDrill || false,
+                isLightning: secondPieceBase.isLightning || false,
+                isSlime: secondPieceBase.isSlime || false,
+                isCatalystBomb: secondPieceBase.isCatalystBomb || false,
+                isWildcard: secondPieceBase.isWildcard || false,
+              };
+            }
+          });
+        });
+        setBoard(nextBoard);
+        addFloatingText("DOUBLE DROP! ♊", secondX, dropY);
+      }
+    }
+  }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd, addFloatingText]);
 
   const holdCurrentPiece = useCallback(() => {
     const { activePiece: piece, board: currentBoard, gameState: state, isControllable: canControl } = stateRef.current;
@@ -2922,19 +3047,23 @@ Can you beat my score? Play ThinkFastBlast!`;
     };
     const replacement = heldPiece || nextPiece || createPieceForLevel(activeLevel, false);
     const replacementWidth = replacement.shape[0].length;
+    const isInverse = stateRef.current.activeMutator === "inverse_gravity";
+    const replacementHeight = replacement.shape.length;
+    const spawnY = isInverse ? BOARD_HEIGHT - replacementHeight : 0;
+    
     const replacementPiece = {
       ...replacement,
       x: Math.floor(BOARD_WIDTH / 2) - Math.floor(replacementWidth / 2),
-      y: 0,
+      y: spawnY,
     };
 
-    if (checkCollision(replacementPiece, currentBoard)) return;
+    if (checkCollision(replacementPiece, currentBoard, isInverse)) return;
     setHeldPiece(storedPiece);
     if (!heldPiece) setNextPiece(createPieceForLevel(activeLevel, false));
     setActivePiece(replacementPiece);
     setHoldUsed(true);
     playSFX("hold");
-    addFloatingText("HOLD SWAP!", replacementPiece.x, 2);
+    addFloatingText("HOLD SWAP!", replacementPiece.x, spawnY + (isInverse ? -1 : 2));
   }, [holdUsed, heldPiece, nextPiece, createPieceForLevel, addFloatingText]);
 
   const lockPiece = useCallback(() => {
@@ -2976,22 +3105,25 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Controls
   // -------------------------------------------------------------------------
   const moveDown = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, isPaused: paused } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isPaused: paused, activeMutator } = stateRef.current;
     if (paused) return;
     if (!piece) return;
 
-    const movedPiece = { ...piece, y: piece.y + 1 };
-    if (!checkCollision(movedPiece, currentBoard)) setActivePiece(movedPiece);
+    const isInverse = activeMutator === "inverse_gravity";
+    const nextY = isInverse ? piece.y - 1 : piece.y + 1;
+    const movedPiece = { ...piece, y: nextY };
+    if (!checkCollision(movedPiece, currentBoard, isInverse)) setActivePiece(movedPiece);
     else lockPiece();
   }, [lockPiece]);
 
   const moveHorizontal = useCallback((dir) => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused, activeMutator } = stateRef.current;
     if (paused) return;
     if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state)) return;
 
+    const isInverse = activeMutator === "inverse_gravity";
     const movedPiece = { ...piece, x: piece.x + dir };
-    if (!checkCollision(movedPiece, currentBoard)) {
+    if (!checkCollision(movedPiece, currentBoard, isInverse)) {
       setActivePiece(movedPiece);
     } else if (piece.isSlime) {
       addFloatingText("STUCK! 🦠", piece.x, piece.y);
@@ -3000,24 +3132,30 @@ Can you beat my score? Play ThinkFastBlast!`;
   }, [lockPiece, addFloatingText]);
 
   const rotatePiece = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused, activeMutator } = stateRef.current;
     if (paused) return;
     if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state) || piece.isFruit) return;
 
+    const isInverse = activeMutator === "inverse_gravity";
     const rotatedPiece = { ...piece, shape: rotateShapeClockwise(piece.shape) };
-    if (!checkCollision(rotatedPiece, currentBoard)) {
+    if (!checkCollision(rotatedPiece, currentBoard, isInverse)) {
       playSFX("rotate");
       setActivePiece(rotatedPiece);
     }
   }, []);
 
   const hardDrop = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, isControllable: canControl, gameState: state, isPaused: paused, activeMutator } = stateRef.current;
     if (paused) return;
     if (!piece || !canControl || !["dropping", "arena_dropping"].includes(state)) return;
 
     let y = piece.y;
-    while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
+    const isInverse = activeMutator === "inverse_gravity";
+    if (isInverse) {
+      while (!checkCollision({ ...piece, y: y - 1 }, currentBoard, true)) y -= 1;
+    } else {
+      while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
+    }
     const droppedPiece = { ...piece, y };
     playSFX("drop");
     setActivePiece(droppedPiece);
@@ -3028,7 +3166,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (!value) return;
         const boardY = droppedPiece.y + shapeY;
         const boardX = droppedPiece.x + shapeX;
-        if (boardY >= 0) {
+        if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: droppedPiece.color,
             isFruit: droppedPiece.isFruit || false,
@@ -3090,7 +3228,10 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (gameState !== "dropping" || isPaused) return undefined;
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
     const baseSpeed = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
-    const speed = Math.max(5, Math.round(baseSpeed * runConfig.difficulty.gravityMultiplier));
+    let speed = Math.max(5, Math.round(baseSpeed * runConfig.difficulty.gravityMultiplier));
+    if (stateRef.current.activeMutator === "dopamine_rush") {
+      speed = Math.max(5, Math.round(speed / 2));
+    }
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
   }, [gameState, isPaused, level, moveDown, runConfig.difficulty.gravityMultiplier]);
@@ -3320,7 +3461,8 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         setBoard(afterClearBoard);
         setExplodingCells([]);
-        setTotalScore((prev) => prev + pointsEarned);
+        const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+        setTotalScore((prev) => prev + pointsEarned * (isDopamine ? 2 : 1));
         const nextRunMetrics = {
           ...runMetrics,
           lines: runMetrics.lines + lineClearCount,
@@ -4337,7 +4479,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       vibrate(nextStreak >= 5 ? [18, 40, 18] : 16);
       setCorrectStreak(nextStreak);
       setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
-      setTotalScore((score) => score + POINTS.CORRECT_ANSWER);
+      const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+      setTotalScore((score) => score + POINTS.CORRECT_ANSWER * (isDopamine ? 2 : 1));
       setQuestionsAnsweredThisLevel((answered) => answered + 1);
 
       // Variable verbal reward: escalating praise, larger on milestone streaks.
@@ -4347,7 +4490,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       const elapsed = (Date.now() - questionStartTime) / 1000;
       let bonusText = "";
       if (elapsed <= runConfig.difficulty.quickWindowSeconds) {
-        setTotalScore((score) => score + 15);
+        setTotalScore((score) => score + 15 * (isDopamine ? 2 : 1));
         bonusText = " PERFECT! Quick Bonus +15 Pts!";
         addFloatingText("PERFECT! ⚡", piece?.x || 5, piece?.y || 4);
         unlockAchievement("perfect");
@@ -4459,6 +4602,17 @@ Can you beat my score? Play ThinkFastBlast!`;
   const startLevel = useCallback((nextLevel, requestedMode) => {
     playSFX("button");
     setLevel(nextLevel);
+    
+    const isSinglePlayer = requestedMode !== "ai_race" && nextLevel !== 98;
+    let rolledMutator = null;
+    if (isSinglePlayer) {
+      const mutatorOptions = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck"];
+      rolledMutator = mutatorOptions[Math.floor(Math.random() * mutatorOptions.length)];
+    }
+    setActiveMutator(rolledMutator);
+    setWheelState(rolledMutator ? "spinning" : "idle");
+    setWheelIndex(0);
+
     if (nextLevel === 98) {
       setRunMode("daily");
       setShuffledQuestions(buildDailyQuestionDeck({
@@ -4474,6 +4628,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         recentIds: readRecentQuestionIds(),
         size: nextLevel >= 11 ? 70 : 60,
         seed: `${nextLevel}-${Date.now()}-${Math.random()}`,
+        isChaosDeck: rolledMutator === "chaos_deck",
       }));
     }
     setBoard(createEmptyBoard());
@@ -4536,26 +4691,51 @@ Can you beat my score? Play ThinkFastBlast!`;
   // plan placements at a glance. Drawn under the live piece, never on occupied cells.
   if (activePiece && gameState === "dropping" && isControllable) {
     let ghostY = activePiece.y;
-    while (!checkCollision({ ...activePiece, y: ghostY + 1 }, board)) ghostY += 1;
-    if (ghostY > activePiece.y) {
-      activePiece.shape.forEach((row, y) => {
-        row.forEach((value, x) => {
-          if (!value) return;
-          const boardY = ghostY + y;
-          const boardX = activePiece.x + x;
-          if (
-            boardY >= 0 && boardY < BOARD_HEIGHT &&
-            boardX >= 0 && boardX < BOARD_WIDTH &&
-            displayBoard[boardY][boardX] === null
-          ) {
-            displayBoard[boardY][boardX] = {
-              color: activePiece.color,
-              emoji: "",
-              isGhost: true,
-            };
-          }
+    const isInverse = activeMutator === "inverse_gravity";
+    if (isInverse) {
+      while (!checkCollision({ ...activePiece, y: ghostY - 1 }, board, true)) ghostY -= 1;
+      if (ghostY < activePiece.y) {
+        activePiece.shape.forEach((row, y) => {
+          row.forEach((value, x) => {
+            if (!value) return;
+            const boardY = ghostY + y;
+            const boardX = activePiece.x + x;
+            if (
+              boardY >= 0 && boardY < BOARD_HEIGHT &&
+              boardX >= 0 && boardX < BOARD_WIDTH &&
+              displayBoard[boardY][boardX] === null
+            ) {
+              displayBoard[boardY][boardX] = {
+                color: activePiece.color,
+                emoji: "",
+                isGhost: true,
+              };
+            }
+          });
         });
-      });
+      }
+    } else {
+      while (!checkCollision({ ...activePiece, y: ghostY + 1 }, board)) ghostY += 1;
+      if (ghostY > activePiece.y) {
+        activePiece.shape.forEach((row, y) => {
+          row.forEach((value, x) => {
+            if (!value) return;
+            const boardY = ghostY + y;
+            const boardX = activePiece.x + x;
+            if (
+              boardY >= 0 && boardY < BOARD_HEIGHT &&
+              boardX >= 0 && boardX < BOARD_WIDTH &&
+              displayBoard[boardY][boardX] === null
+            ) {
+              displayBoard[boardY][boardX] = {
+                color: activePiece.color,
+                emoji: "",
+                isGhost: true,
+              };
+            }
+          });
+        });
+      }
     }
   }
 
@@ -5383,6 +5563,12 @@ Can you beat my score? Play ThinkFastBlast!`;
               </div>
               </div>
 
+              {activeMutator && (
+                <div className={`game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
+                  MUTATOR ACTIVE: {MUTATOR_DETAILS[activeMutator].emoji} {MUTATOR_DETAILS[activeMutator].name}
+                </div>
+              )}
+
               {Object.entries(BOARD_POWERS).some(([id]) => stats.unlockedItems.includes(id)) && (
                 <div className="power-deck game-board-width" aria-label="Power Deck">
                   <span>POWER DECK</span>
@@ -5538,6 +5724,33 @@ Can you beat my score? Play ThinkFastBlast!`;
             <h2 className="text-2xl md:text-3xl font-black text-white mb-6 z-10 drop-shadow-md">
               {currentLevel.name}
             </h2>
+
+            {/* MUTATOR WHEEL SCREEN */}
+            {activeMutator && (
+              <div className="w-full max-w-md mx-auto mb-6 p-4 rounded-2xl bg-slate-900/50 border border-slate-700/40 backdrop-blur-md text-center z-10 shadow-lg mutator-wheel-card">
+                <span className="text-[10px] font-black uppercase text-purple-400 tracking-wider block mb-2">
+                  Mutator Wheel
+                </span>
+                {wheelState === "spinning" ? (
+                  <div className="flex flex-col items-center py-2 animate-pulse">
+                    <div className="w-10 h-10 rounded-full border-4 border-dashed border-purple-500 animate-spin mb-2"></div>
+                    <div className="text-sm font-bold text-slate-300">
+                      Spinning: {MUTATOR_DETAILS[Object.keys(MUTATOR_DETAILS)[wheelIndex]]?.name}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`p-4 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} transition-all duration-500 scale-100 animate-bounce shadow-lg ${MUTATOR_DETAILS[activeMutator].glow} mutator-wheel-glow-active`}>
+                    <div className="text-3xl mb-1">{MUTATOR_DETAILS[activeMutator].emoji}</div>
+                    <div className="text-lg font-black tracking-wide uppercase">
+                      {MUTATOR_DETAILS[activeMutator].name} ACTIVATED!
+                    </div>
+                    <div className="text-xs font-semibold mt-1 opacity-90">
+                      {MUTATOR_DETAILS[activeMutator].desc}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="intro-win-brief z-10">
               <div className="intro-win-title">HOW TO WIN: COMPLETE BOTH GOALS</div>
               <div className="intro-win-goals">
