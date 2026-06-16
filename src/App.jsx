@@ -780,9 +780,19 @@ function BrainSparksCanvas() {
 }
 
 // A Canvas component for drawing block explosions and sparks
-function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "match" }) {
+function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "match", activePiece }) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
+  const activePieceRef = useRef(activePiece);
+  const correctStreakRef = useRef(correctStreak);
+
+  useEffect(() => {
+    activePieceRef.current = activePiece;
+  }, [activePiece]);
+
+  useEffect(() => {
+    correctStreakRef.current = correctStreak;
+  }, [correctStreak]);
 
   useEffect(() => {
     if (!explodingCells || explodingCells.length === 0) return;
@@ -875,8 +885,49 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
 
     const isMobile = isMobileDevice();
     let animationId;
+    let frameCount = 0;
     const updateAndDraw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const currentStreak = correctStreakRef.current;
+      const currentActivePiece = activePieceRef.current;
+
+      if (currentStreak >= 5 && currentActivePiece) {
+        frameCount += 1;
+        if (frameCount % 4 === 0) {
+          const width = canvas.width;
+          const height = canvas.height;
+          const cellW = width / 10;
+          const cellH = height / 16;
+          currentActivePiece.shape.forEach((row, ry) => {
+            row.forEach((val, rx) => {
+              if (val) {
+                const bx = currentActivePiece.x + rx;
+                const by = currentActivePiece.y + ry;
+                if (bx >= 0 && bx < 10 && by >= 0 && by < 16) {
+                  const cx = (bx + Math.random()) * cellW;
+                  const cy = (by + Math.random()) * cellH;
+                  particlesRef.current.push({
+                    x: cx,
+                    y: cy,
+                    vx: (Math.random() - 0.5) * 2.5,
+                    vy: (Math.random() - 0.5) * 2.5 - 0.5,
+                    color: ["#22d3ee", "#e879f9", "#facc15", "#ffffff"][Math.floor(Math.random() * 4)],
+                    size: Math.random() * 2.5 + 1,
+                    alpha: 1.0,
+                    decay: Math.random() * 0.04 + 0.02,
+                    gravity: 0.02,
+                    kind: "spark",
+                    rotation: Math.random() * Math.PI,
+                    spin: (Math.random() - 0.5) * 0.1,
+                  });
+                }
+              }
+            });
+          });
+        }
+      }
+
       drawParticles(ctx, particlesRef.current, isMobile);
       animationId = requestAnimationFrame(updateAndDraw);
     };
@@ -4040,7 +4091,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       const isMajor = (gameState === "transition" && isControllable) || gameState === "intro" || gameState === "arena_intro";
       const scaleType = isMajor ? "major" : "minor";
 
-      startArpeggiator(bpm, scaleType, intensity);
+      const isFever = correctStreak >= 5 || (arenaMode && correctStreak2 >= 5);
+
+      startArpeggiator(bpm, scaleType, intensity, "game", isFever);
     } else {
       stopArpeggiator();
     }
@@ -4050,7 +4103,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         stopArpeggiator();
       }
     };
-  }, [board, level, gameState, isControllable, audioOn, isPaused, misses, strikeLimit, correctStreak]);
+  }, [board, level, gameState, isControllable, audioOn, isPaused, misses, strikeLimit, correctStreak, correctStreak2, arenaMode]);
 
   // Menu Music controller
   useEffect(() => {
@@ -5119,7 +5172,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? "animate-shake" : ""} ${correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -5132,7 +5185,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                       } else {
                         if (cell?.isStone) cellClass += " border border-slate-400 bg-slate-600";
                         if (isExploding) {
-                          cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
+                           cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
                         }
                       }
 
@@ -5143,6 +5196,13 @@ Can you beat my score? Play ThinkFastBlast!`;
                       );
                     })
                   )}
+
+                  <BoardParticlesCanvas
+                    explodingCells={explodingCells}
+                    correctStreak={correctStreak}
+                    effectType="match"
+                    activePiece={activePiece}
+                  />
 
                   {floatingTexts.map((t) => (
                     <div
@@ -5182,7 +5242,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? "animate-shake" : ""} ${correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {(() => {
                     const displayBoard2 = board2.map(row => [...row]);
@@ -5257,6 +5317,13 @@ Can you beat my score? Play ThinkFastBlast!`;
                       })
                     );
                   })()}
+
+                  <BoardParticlesCanvas
+                    explodingCells={explodingCells2}
+                    correctStreak={correctStreak2}
+                    effectType="match"
+                    activePiece={activePiece2}
+                  />
 
                   {floatingTexts2.map((t) => (
                     <div
@@ -5601,7 +5668,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? "animate-shake" : ""} ${correctStreak >= 7 ? "combo-heat-3" : correctStreak >= 5 ? "combo-heat-2" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -5657,6 +5724,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 explodingCells={explodingCells}
                 correctStreak={correctStreak}
                 effectType={blastEffect}
+                activePiece={activePiece}
               />
 
               {/* Floating Combo / Points Feedback Popups */}

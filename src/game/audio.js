@@ -212,9 +212,11 @@ const menuProgression = [
   { root: 98.0, fifth: 146.83, tones: [196.0, 246.94, 293.66, 349.23], melody: [392.0, 440.0, 493.88, 523.25, 659.25] },
 ];
 
-const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs }) => {
+const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs, fever = false }) => {
   const progression = scene === "menu" || scene === "victory" ? menuProgression : gameProgression;
-  const bar = Math.floor((step % 32) / 8);
+  const bar = (fever && scene !== "menu" && scene !== "victory")
+    ? Math.floor((step % 16) / 4)
+    : Math.floor((step % 32) / 8);
   const beat = step % 8;
   const chord = progression[bar];
   const isMajor = scaleType === "major";
@@ -222,13 +224,13 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
   if (beat === 0 || beat === 4) {
     playTone({
       destination: musicGain,
-      type: "triangle",
+      type: (fever && scene !== "menu") ? "sawtooth" : "triangle",
       frequency: beat === 0 ? chord.root : chord.fifth,
       startTime: now,
       duration: (intervalMs / 1000) * 1.7,
-      gain: 0.08 + intensity * 0.03,
+      gain: (0.08 + intensity * 0.03) * ((fever && scene !== "menu") ? 1.25 : 1.0),
       filterType: "lowpass",
-      filterFrequency: 160 + intensity * 120,
+      filterFrequency: (160 + intensity * 120) * ((fever && scene !== "menu") ? 2.5 : 1.0),
     });
   }
 
@@ -236,13 +238,13 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
     chord.tones.forEach((freq, index) => {
       playTone({
         destination: musicGain,
-        type: "sine",
+        type: (fever && scene !== "menu") ? "sawtooth" : "sine",
         frequency: freq,
         startTime: now + index * 0.004,
         duration: (intervalMs / 1000) * 0.85,
-        gain: 0.024 + intensity * 0.012,
+        gain: (0.024 + intensity * 0.012) * ((fever && scene !== "menu") ? 0.7 : 1.0),
         filterType: "lowpass",
-        filterFrequency: 420 + intensity * 480,
+        filterFrequency: (420 + intensity * 480) * ((fever && scene !== "menu") ? 2.2 : 1.0),
       });
     });
   }
@@ -252,14 +254,14 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
     const baseFreq = chord.melody[melIdx];
     playTone({
       destination: musicGain,
-      type: isMajor ? "sine" : "triangle",
+      type: (fever && scene !== "menu") ? "sawtooth" : (isMajor ? "sine" : "triangle"),
       frequency: baseFreq,
       startTime: now,
       duration: (intervalMs / 1000) * 0.78,
-      gain: 0.018 + intensity * 0.008,
+      gain: (0.018 + intensity * 0.008) * ((fever && scene !== "menu") ? 1.2 : 1.0),
       filterType: "lowpass",
-      filterFrequency: 900 + intensity * 1000,
-      detune: Math.sin(now * 10) * 8,
+      filterFrequency: (900 + intensity * 1000) * ((fever && scene !== "menu") ? 2.5 : 1.0),
+      detune: Math.sin(now * 10) * ((fever && scene !== "menu") ? 18 : 8),
     });
   }
 
@@ -341,21 +343,25 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs 
   }
 };
 
-export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game") => {
+export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game", fever = false) => {
   if (!audioEnabled) return;
   stopArpeggiator();
   if (!audioCtx) return;
   initAudio();
   if (!audioCtx) return;
 
-  const intervalMs = (60 / bpm) * 1000 / 2;
+  let effectiveBpm = bpm;
+  if (fever) {
+    effectiveBpm = Math.min(240, Math.floor(bpm * 1.3));
+  }
+  const intervalMs = (60 / effectiveBpm) * 1000 / 2;
   let localStep = currentArpNote;
 
   arpeggiatorInterval = setInterval(() => {
     try {
       if (!audioCtx || audioCtx.state === "suspended" || !audioEnabled) return;
       const now = audioCtx.currentTime;
-      scheduleMusicStep({ now, step: localStep, scene, scaleType, intensity, intervalMs });
+      scheduleMusicStep({ now, step: localStep, scene, scaleType, intensity, intervalMs, fever });
       localStep += 1;
       currentArpNote = localStep;
     } catch (e) {

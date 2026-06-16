@@ -1516,6 +1516,16 @@ button {
   animation: shake 0.3s ease-in-out;
 }
 
+@keyframes shake-amplified {
+  0%, 100% { transform: translate(0, 0); }
+  10%, 30%, 50%, 70%, 90% { transform: translate(-9px, 4px) rotate(-1.5deg); }
+  20%, 40%, 60%, 80% { transform: translate(9px, -4px) rotate(1.5deg); }
+}
+
+.animate-shake-amplified {
+  animation: shake-amplified 0.3s ease-in-out;
+}
+
 /* Floating points/combo text drift */
 @keyframes floatUp {
   0% { transform: translateY(0) scale(1); opacity: 1; }
@@ -1743,6 +1753,75 @@ button {
 @keyframes comboHeatPulse {
   0%, 100% { filter: brightness(1); }
   50% { filter: brightness(1.18); }
+}
+
+/* Fever Mode - visual overdrive at x5+ streak */
+.fever-active {
+  position: relative;
+  border-color: transparent !important;
+  box-shadow: 
+    0 0 22px rgba(34, 211, 238, 0.7), 
+    0 0 45px rgba(232, 121, 249, 0.55), 
+    inset 0 0 28px rgba(34, 211, 238, 0.3) !important;
+  animation: feverPulse 0.4s ease-in-out infinite alternate, feverFlicker 0.15s linear infinite;
+}
+
+.fever-active::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 3px solid transparent;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22d3ee, #e879f9, #facc15, #22d3ee) border-box;
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 10;
+  animation: feverElectricBorder 1.2s linear infinite;
+  filter: drop-shadow(0 0 8px #22d3ee) drop-shadow(0 0 16px #e879f9);
+}
+
+@keyframes feverPulse {
+  0% {
+    box-shadow: 
+      0 0 16px rgba(34, 211, 238, 0.6), 
+      0 0 32px rgba(232, 121, 249, 0.45), 
+      inset 0 0 18px rgba(34, 211, 238, 0.22);
+  }
+  100% {
+    box-shadow: 
+      0 0 28px rgba(34, 211, 238, 0.98), 
+      0 0 58px rgba(232, 121, 249, 0.82), 
+      inset 0 0 38px rgba(34, 211, 238, 0.45);
+  }
+}
+
+@keyframes feverFlicker {
+  0%, 100% {
+    filter: brightness(1.0);
+  }
+  50% {
+    filter: brightness(1.25);
+  }
+  25%, 75% {
+    filter: brightness(1.1);
+  }
+}
+
+@keyframes feverElectricBorder {
+  0% {
+    background-position: 0% 0%;
+    filter: hue-rotate(0deg) drop-shadow(0 0 8px #22d3ee) drop-shadow(0 0 16px #e879f9);
+  }
+  50% {
+    filter: hue-rotate(180deg) drop-shadow(0 0 14px #22d3ee) drop-shadow(0 0 24px #e879f9) brightness(1.4);
+  }
+  100% {
+    background-position: 200% 0%;
+    filter: hue-rotate(360deg) drop-shadow(0 0 8px #22d3ee) drop-shadow(0 0 16px #e879f9);
+  }
 }
 
 /* Answer option letter badges */
