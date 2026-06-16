@@ -95,10 +95,26 @@ export const buildQuestionDeck = ({
   recentIds = [],
   size = 60,
   seed = `${Date.now()}-${Math.random()}`,
+  isChaosDeck = false,
 }) => {
   const random = createSeededRandom(seed);
   const recent = new Set(recentIds);
-  const pool = collectPool(level, banks);
+  let pool;
+  if (isChaosDeck) {
+    const allLevels = Array.from({ length: 20 }, (_, i) => i + 1);
+    const byPrompt = new Map();
+    allLevels.forEach((l) => {
+      const questions = banks[l] || [];
+      questions.forEach((question) => {
+        const normalized = normalizeQuestion(question, l);
+        const promptKey = normalized.q.toLowerCase();
+        if (!byPrompt.has(promptKey)) byPrompt.set(promptKey, normalized);
+      });
+    });
+    pool = [...byPrompt.values()];
+  } else {
+    pool = collectPool(level, banks);
+  }
   const unseen = shuffleWithRandom(pool.filter((question) => !recent.has(question.id)), random);
   const seen = shuffleWithRandom(pool.filter((question) => recent.has(question.id)), random);
 

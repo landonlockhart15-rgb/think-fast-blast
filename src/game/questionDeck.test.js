@@ -30,6 +30,21 @@ test("buildQuestionDeck keeps unseen questions ahead of recent questions", () =>
   assert.equal(recentIds.includes(next[1].id), false);
 });
 
+test("buildQuestionDeck collects from multiple levels if isChaosDeck is true", () => {
+  const deck = buildQuestionDeck({
+    level: 1,
+    banks: BANKS,
+    size: 4,
+    seed: "chaos",
+    isChaosDeck: true,
+  });
+
+  const hasL1 = deck.some((q) => q.q === "One?" || q.q === "Two?");
+  const hasL2 = deck.some((q) => q.q === "Three?" || q.q === "Four?");
+  assert.equal(hasL1, true);
+  assert.equal(hasL2, true);
+});
+
 test("buildQuestionDeck shuffles options while preserving the correct answer", () => {
   const deck = buildQuestionDeck({ level: 1, banks: BANKS, size: 4, seed: "options" });
   deck.forEach((question) => {

@@ -3753,3 +3753,22 @@ button {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Mutator Wheel classes */
+.mutator-wheel-card {
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.mutator-wheel-glow-active {
+  animation: mutatorPulse 2s infinite alternate;
+}
+
+@keyframes mutatorPulse {
+  0% {
+    box-shadow: 0 0 15px rgba(168, 85, 247, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 30px rgba(168, 85, 247, 0.6);
+  }
+}
+
