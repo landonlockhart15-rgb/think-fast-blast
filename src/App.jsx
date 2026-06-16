@@ -2282,7 +2282,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       saveEndlessScoreToSupabase(playerName, finalScore, endlessLevel);
     }
 
-    const prevBest = savedSnapshot.highScores[level] || 0;
+    const prevBest = runMode === "endless"
+      ? (savedSnapshot.endlessHighScores?.[0]?.score || 0)
+      : (savedSnapshot.highScores[level] || 0);
     setPreviousBest(prevBest);
 
     // New personal-best answer streak (recurring celebration, persisted).
@@ -2339,8 +2341,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       unlockProgressMilestones(glitchesEarned);
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
-        const previousBest = updatedHighScores[level] || 0;
-        updatedHighScores[level] = Math.max(previousBest, finalScore);
+        if (runMode !== "endless") {
+          const previousBest = updatedHighScores[level] || 0;
+          updatedHighScores[level] = Math.max(previousBest, finalScore);
+        }
 
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -2389,8 +2393,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       unlockProgressMilestones(glitchesEarned);
       setStats((prevStats) => {
         const updatedHighScores = { ...prevStats.highScores };
-        const previousBest = updatedHighScores[level] || 0;
-        updatedHighScores[level] = Math.max(previousBest, finalScore);
+        if (runMode !== "endless") {
+          const previousBest = updatedHighScores[level] || 0;
+          updatedHighScores[level] = Math.max(previousBest, finalScore);
+        }
 
         const newStats = {
           ...prevStats,
