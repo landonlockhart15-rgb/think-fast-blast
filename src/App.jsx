@@ -2326,7 +2326,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (!value) return;
         const boardY = piece.y + y;
         const boardX = piece.x + x;
-        if (boardY >= 0) {
+        if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: piece.color,
             isFruit: piece.isFruit || false,
@@ -2399,7 +2399,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (!value) return;
         const boardY = droppedPiece.y + shapeY;
         const boardX = droppedPiece.x + shapeX;
-        if (boardY >= 0) {
+        if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: droppedPiece.color,
             isFruit: droppedPiece.isFruit || false,
@@ -2530,7 +2530,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           if (!value) return;
           const boardY = piece1.y + y;
           const boardX = piece1.x + x;
-          if (boardY >= 0) {
+          if (boardY >= 0 && boardY < BOARD_HEIGHT) {
             nextBoard[boardY][boardX] = {
               color: "bg-slate-500",
               isStone: true,
@@ -2554,7 +2554,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           if (!value) return;
           const boardY = piece2.y + y;
           const boardX = piece2.x + x;
-          if (boardY >= 0) {
+          if (boardY >= 0 && boardY < BOARD_HEIGHT) {
             nextBoard[boardY][boardX] = {
               color: "bg-slate-500",
               isStone: true,
@@ -2844,7 +2844,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (!value) return;
         const boardY = piece.y + y;
         const boardX = piece.x + x;
-        if (boardY >= 0) {
+        if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: "bg-slate-500",
             emoji: "🧱",
@@ -3078,7 +3078,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (!value) return;
         const boardY = piece.y + y;
         const boardX = piece.x + x;
-        if (boardY >= 0) {
+        if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: piece.color,
             isFruit: piece.isFruit || false,
@@ -4542,10 +4542,17 @@ Can you beat my score? Play ThinkFastBlast!`;
         isStone: true,
       };
 
+      const isInverse = stateRef.current.activeMutator === "inverse_gravity";
       let y = stonePiece.y;
       const currentBoard = board;
-      while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoard)) {
-        y += 1;
+      if (isInverse) {
+        while (!checkCollision({ ...stonePiece, y: y - 1 }, currentBoard, true)) {
+          y -= 1;
+        }
+      } else {
+        while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoard)) {
+          y += 1;
+        }
       }
       const lockedStonePiece = { ...stonePiece, y };
 
@@ -4555,7 +4562,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           if (!value) return;
           const boardY = lockedStonePiece.y + shapeY;
           const boardX = lockedStonePiece.x + shapeX;
-          if (boardY >= 0) {
+          if (boardY >= 0 && boardY < BOARD_HEIGHT) {
             nextBoard[boardY][boardX] = {
               color: lockedStonePiece.color,
               isStone: true,
