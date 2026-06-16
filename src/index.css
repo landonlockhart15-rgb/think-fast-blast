@@ -152,7 +152,7 @@ button {
 
 .menu-hero-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.7rem;
   margin-top: 1rem;
 }
@@ -209,6 +209,16 @@ button {
 
 .home-action-shop {
   border-color: rgb(250 204 21 / 0.55);
+}
+
+.home-action-endless {
+  border-color: rgb(168 85 247 / 0.55);
+  background: linear-gradient(145deg, rgb(88 28 135 / 0.82), rgb(15 23 42 / 0.96));
+}
+
+.home-action-endless:hover {
+  border-color: rgb(168 85 247 / 0.9);
+  box-shadow: 0 0 24px rgb(168 85 247 / 0.2);
 }
 
 .home-secondary-actions {
@@ -691,9 +701,7 @@ button {
     gap: 0.55rem;
   }
 
-  .home-action-solo {
-    grid-column: 1 / -1;
-  }
+    /* Cards are balanced in a 2x2 grid on mobile */
 
   .home-action-card {
     min-height: 5.3rem;

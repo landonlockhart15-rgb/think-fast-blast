@@ -61,6 +61,8 @@ import Confetti from "./game/Confetti";
 import OnlineArena from "./game/OnlineArenaView";
 import { isMobileDevice, drawSparks, drawParticles } from "./utils/render";
 import Game from "./components/Game";
+import { saveEndlessScoreToSupabase } from "./game/supabase";
+import EndlessLeaderboardView from "./components/EndlessLeaderboardView";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
 const RECENT_QUESTIONS_STORAGE_KEY = "think-fast-blast-recent-questions";
@@ -154,6 +156,7 @@ const readSavedStats = () => {
     const parsed = saved ? JSON.parse(saved) : {};
     return {
       highScores: parsed.highScores || {},
+      endlessHighScores: parsed.endlessHighScores || [],
       totalGames: parsed.totalGames || 0,
       totalCorrect: parsed.totalCorrect || 0,
       totalQuestions: parsed.totalQuestions || 0,
@@ -173,7 +176,7 @@ const readSavedStats = () => {
       totalSpecials: parsed.totalSpecials || 0,
     };
   } catch {
-    return { highScores: {}, totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default", unlockedAchievements: [], bestStreak: 0, dailyStreak: 0, lastDailyWin: "", dailyBest: 0, levelsWon: 0, arenaWins: 0, totalLines: 0, totalMatches: 0, totalFruits: 0, totalSpecials: 0 };
+    return { highScores: {}, endlessHighScores: [], totalGames: 0, totalCorrect: 0, totalQuestions: 0, glitches: 0, unlockedItems: [], activeTheme: "default", unlockedAchievements: [], bestStreak: 0, dailyStreak: 0, lastDailyWin: "", dailyBest: 0, levelsWon: 0, arenaWins: 0, totalLines: 0, totalMatches: 0, totalFruits: 0, totalSpecials: 0 };
   }
 };
 
@@ -1427,6 +1430,8 @@ export default function App() {
   const [profileAvatarDraft, setProfileAvatarDraft] = useState("🚀");
   const [runMode, setRunMode] = useState("campaign");
   const [level, setLevel] = useState(1);
+  const [endlessLevel, setEndlessLevel] = useState(1);
+  const [speedWavePieces, setSpeedWavePieces] = useState(0);
   const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(readSavedProgress);
   const [board, setBoard] = useState(createEmptyBoard());
   const [activePiece, setActivePiece] = useState(null);
@@ -1827,10 +1832,22 @@ Can you beat my score? Play ThinkFastBlast!`;
   });
 
   const canPause = PLAYABLE_STATES.has(gameState);
-  const runConfig = useMemo(
-    () => getRunConfig(level, difficultyMode),
-    [level, difficultyMode]
-  );
+  const runConfig = useMemo(() => {
+    if (runMode === "endless") {
+      const virtualLevel = Math.min(20, Math.floor((endlessLevel - 1) / 2) + 1);
+      const baseConfig = getRunConfig(virtualLevel, difficultyMode);
+      return {
+        ...baseConfig,
+        target: endlessLevel * 500,
+        objective: {
+          type: "score",
+          amount: endlessLevel * 500,
+          label: `Reach ${endlessLevel * 500} pts to clear Stage ${endlessLevel}`,
+        },
+      };
+    }
+    return getRunConfig(level, difficultyMode);
+  }, [level, difficultyMode, runMode, endlessLevel]);
   const runTarget = runConfig.target;
   const strikeLimit = runConfig.difficulty.strikes;
   const objectiveStatus = getObjectiveStatus(runConfig, {
@@ -1853,6 +1870,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     misses,
     questionsSinceLastRise,
     runMetrics,
+    runMode,
+    endlessLevel,
+    speedWavePieces,
     // Arena
     board2,
     activePiece2,
@@ -1909,6 +1929,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       questionsSinceLastRise,
       runMetrics,
       activeMutator,
+      runMode,
+      endlessLevel,
+      speedWavePieces,
       // Arena
       board2,
       activePiece2,
@@ -1921,7 +1944,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       arenaMode,
       aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
   useEffect(() => {
     saveProgress(maxUnlockedLevel);
@@ -2233,6 +2256,32 @@ Can you beat my score? Play ThinkFastBlast!`;
     const savedSnapshot = readSavedStats();
     const completedRunMetrics = stateRef.current.runMetrics || runMetrics;
 
+    if (runMode === "endless") {
+      const entry = {
+        score: finalScore,
+        stage: endlessLevel,
+        date: new Date().toLocaleDateString(),
+      };
+      const localScores = [...(savedSnapshot.endlessHighScores || [])];
+      localScores.push(entry);
+      localScores.sort((a, b) => b.score - a.score);
+      const updatedScores = localScores.slice(0, 10);
+      
+      const isNewPersonalBest = updatedScores[0]?.score === finalScore;
+      if (isNewPersonalBest) {
+        pushToast({ kind: "record", emoji: "🏆", title: "New Endless Best!", desc: `${finalScore} pts (Stage ${endlessLevel})` });
+      }
+      
+      setStats((prev) => {
+        const next = { ...prev, endlessHighScores: updatedScores };
+        saveStats(next);
+        return next;
+      });
+
+      const playerName = activeProfile?.name || "Player 1";
+      saveEndlessScoreToSupabase(playerName, finalScore, endlessLevel);
+    }
+
     const prevBest = savedSnapshot.highScores[level] || 0;
     setPreviousBest(prevBest);
 
@@ -2255,7 +2304,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       unlockAchievement("flawless");
     }
 
-    const levelMultiplier = runMode === "campaign" ? level : 5;
+    const levelMultiplier = runMode === "campaign" ? level : runMode === "endless" ? Math.min(20, endlessLevel) : 5;
     const unlockProgressMilestones = (glitchesEarned) => {
       if ((savedSnapshot.totalCorrect || 0) + questionsAnsweredThisLevel >= 100) {
         unlockAchievement("scholar");
@@ -2360,7 +2409,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       });
       setFeedback(`Game Over! Earned ${glitchesEarned} Glitches.`);
     }
-  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash, maxStreak, pushToast, runMode, dailyChallengeKey, runMetrics, unlockAchievement]);
+  }, [level, questionsAnsweredThisLevel, questionIndex, triggerFlash, maxStreak, pushToast, runMode, dailyChallengeKey, runMetrics, unlockAchievement, activeProfile?.name, endlessLevel]);
 
   // -------------------------------------------------------------------------
   // Arena VS Mode Side-by-Side Callbacks & Loops
@@ -2987,10 +3036,15 @@ Can you beat my score? Play ThinkFastBlast!`;
     let isSlime = false;
 
     // Apply Sticky Slime blocks hazard to level 5 & 6 (never on first block!)
+    const isEndless = stateRef.current.runMode === "endless";
+    const isSlimeLevel = (activeLevel === 5 || activeLevel === 6) || (isEndless && stateRef.current.endlessLevel >= 3);
+    const slimeRate = isEndless 
+      ? Math.min(0.25, SPECIAL_BLOCK_RATES.slime * (1 + (stateRef.current.endlessLevel - 3) * 0.1))
+      : SPECIAL_BLOCK_RATES.slime;
     if (
       !isFirstBlock &&
-      (activeLevel === 5 || activeLevel === 6) &&
-      Math.random() < SPECIAL_BLOCK_RATES.slime
+      isSlimeLevel &&
+      Math.random() < slimeRate
     ) {
       isSlime = true;
       color = "bg-emerald-700 border-2 border-emerald-400";
@@ -3006,6 +3060,9 @@ Can you beat my score? Play ThinkFastBlast!`;
   }, [stats.unlockedItems]);
 
   const spawnQuizPiece = useCallback(() => {
+    if (speedWavePieces > 0) {
+      setSpeedWavePieces((prev) => prev - 1);
+    }
     const activeLevel = stateRef.current.level;
     const isFirstBlock = stateRef.current.questionIndex === 0;
     const pieceBase = nextPiece || createPieceForLevel(activeLevel, isFirstBlock);
@@ -3083,7 +3140,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         addFloatingText("DOUBLE DROP! ♊", secondX, dropY);
       }
     }
-  }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd, addFloatingText]);
+  }, [nextPiece, createPieceForLevel, totalScore, handleGameEnd, addFloatingText, speedWavePieces]);
 
   const holdCurrentPiece = useCallback(() => {
     const { activePiece: piece, board: currentBoard, gameState: state, isControllable: canControl } = stateRef.current;
@@ -3278,14 +3335,19 @@ Can you beat my score? Play ThinkFastBlast!`;
   useEffect(() => {
     if (gameState !== "dropping" || isPaused) return undefined;
     const config = LEVEL_CONFIG[level] || LEVEL_CONFIG[1];
-    const baseSpeed = stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
+    const baseSpeed = runMode === "endless"
+      ? Math.max(50, 1000 - (endlessLevel - 1) * 75)
+      : stateRef.current.isControllable ? config.baseSpeed : config.fastSpeed;
     let speed = Math.max(5, Math.round(baseSpeed * runConfig.difficulty.gravityMultiplier));
     if (stateRef.current.activeMutator === "dopamine_rush") {
       speed = Math.max(5, Math.round(speed / 2));
     }
+    if (runMode === "endless" && speedWavePieces > 0) {
+      speed = Math.max(5, Math.round(speed / 2));
+    }
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
-  }, [gameState, isPaused, level, moveDown, runConfig.difficulty.gravityMultiplier]);
+  }, [gameState, isPaused, level, runMode, endlessLevel, speedWavePieces, moveDown, runConfig.difficulty.gravityMultiplier]);
 
   // -------------------------------------------------------------------------
   // Board resolver: blasts, lines, combos, gravity, win/loss
@@ -3570,6 +3632,60 @@ Can you beat my score? Play ThinkFastBlast!`;
       const projectedScore = totalScore + pointsEarned;
       if (misses >= strikeLimit) {
         handleGameEnd(false, projectedScore);
+      } else if (runMode === "endless" && projectedScore >= endlessLevel * 500) {
+        const nextEndlessLevel = endlessLevel + 1;
+        setEndlessLevel(nextEndlessLevel);
+        if ((nextEndlessLevel - 1) % 5 === 0) {
+          const isSpeedWave = Math.random() < 0.5;
+          if (isSpeedWave) {
+            setSpeedWavePieces(8);
+            playSFX("thunder");
+            addFloatingText("⚠️ SPEED WAVE INCOMING! ⚡", 5, 3);
+            pushToast({ kind: "info", emoji: "⚡", title: "Speed Wave!", desc: "Gravity speed doubled for the next 8 pieces!" });
+          } else {
+            setBoard((currentBoard) => {
+              const nextBoard = currentBoard.map((row) => [...row]);
+              let injectedCount = 0;
+              const targetCount = 4 + Math.floor(Math.random() * 3);
+              for (let i = 0; i < 20 && injectedCount < targetCount; i++) {
+                const row = BOARD_HEIGHT - 1 - Math.floor(Math.random() * 3);
+                const col = Math.floor(Math.random() * BOARD_WIDTH);
+                if (nextBoard[row][col] === null) {
+                  nextBoard[row][col] = {
+                    color: "bg-slate-500",
+                    isStone: true,
+                    emoji: "🧱",
+                  };
+                  injectedCount++;
+                }
+              }
+              return nextBoard;
+            });
+            playSFX("explosion");
+            addFloatingText("⚠️ STONE INJECTION! 🧱", 5, 3);
+            pushToast({ kind: "info", emoji: "🧱", title: "Stone Injection!", desc: "Obstacle blocks injected at the bottom of the board!" });
+          }
+        } else {
+          playSFX("level_win");
+          addFloatingText(`LEVEL ${nextEndlessLevel - 1} CLEAR! 🎉`, 5, 3);
+          pushToast({ kind: "info", emoji: "🎉", title: "Stage Cleared!", desc: `Completed Stage ${nextEndlessLevel - 1}! Target increased.` });
+        }
+        if (questionIndex >= shuffledQuestions.length - 5) {
+          const virtualLevel = Math.min(20, Math.floor((nextEndlessLevel - 1) / 2) + 1);
+          const nextQuestions = buildQuestionDeck({
+            level: virtualLevel,
+            banks: QUESTION_BANKS,
+            recentIds: readRecentQuestionIds(),
+            size: 50,
+            seed: `endless-${nextEndlessLevel}-${Date.now()}`,
+          });
+          setShuffledQuestions(nextQuestions);
+          setQuestionIndex(0);
+        } else {
+          setQuestionIndex((prev) => prev + 1);
+        }
+        setGameState("quiz");
+        spawnQuizPiece();
       } else if (isRunComplete(runConfig, {
         ...runMetrics,
         score: projectedScore,
@@ -3577,7 +3693,22 @@ Can you beat my score? Play ThinkFastBlast!`;
       })) {
         handleGameEnd(true, projectedScore);
       } else if (questionIndex >= shuffledQuestions.length - 1) {
-        handleGameEnd(false, projectedScore);
+        if (runMode === "endless") {
+          const virtualLevel = Math.min(20, Math.floor((endlessLevel - 1) / 2) + 1);
+          const nextQuestions = buildQuestionDeck({
+            level: virtualLevel,
+            banks: QUESTION_BANKS,
+            recentIds: readRecentQuestionIds(),
+            size: 50,
+            seed: `endless-${endlessLevel}-${Date.now()}`,
+          });
+          setShuffledQuestions(nextQuestions);
+          setQuestionIndex(0);
+          setGameState("quiz");
+          spawnQuizPiece();
+        } else {
+          handleGameEnd(false, projectedScore);
+        }
       } else {
         setQuestionIndex((prev) => prev + 1);
         setGameState("quiz");
@@ -3586,7 +3717,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     });
 
     return undefined;
-  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash, vibrate, triggerElectrify, unlockAchievement, strikeLimit, runConfig, runMetrics, maxStreak, triggerShake]);
+  }, [gameState, board, questionIndex, totalScore, misses, shuffledQuestions.length, level, runMode, endlessLevel, speedWavePieces, spawnQuizPiece, handleGameEnd, addFloatingText, triggerFloorRise, triggerFlash, vibrate, triggerElectrify, unlockAchievement, strikeLimit, runConfig, runMetrics, maxStreak, triggerShake, pushToast]);
 
   // -------------------------------------------------------------------------
   // Arena Board resolver: blasts, lines, combos, gravity, win/loss
@@ -4663,7 +4794,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     playSFX("button");
     setLevel(nextLevel);
     
-    const isSinglePlayer = requestedMode !== "ai_race" && nextLevel !== 98;
+    const isSinglePlayer = requestedMode !== "ai_race" && requestedMode !== "endless" && nextLevel !== 98;
     let rolledMutator = null;
     if (isSinglePlayer) {
       const mutatorOptions = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck"];
@@ -4679,6 +4810,18 @@ Can you beat my score? Play ThinkFastBlast!`;
         banks: QUESTION_BANKS,
         date: new Date(),
         size: 30,
+      }));
+    } else if (requestedMode === "endless") {
+      setRunMode("endless");
+      setEndlessLevel(1);
+      setSpeedWavePieces(0);
+      setShuffledQuestions(buildQuestionDeck({
+        level: 1,
+        banks: { ...QUESTION_BANKS, 99: customQuestions },
+        recentIds: readRecentQuestionIds(),
+        size: 60,
+        seed: `endless-1-${Date.now()}-${Math.random()}`,
+        isChaosDeck: false,
       }));
     } else {
       setRunMode(requestedMode === "ai_race" ? "ai_race" : nextLevel === 99 ? "custom" : "campaign");
@@ -5588,7 +5731,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               </div>
             )}
             <div className="score-hud game-board-width flex justify-between mb-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur-md rounded-lg text-xs md:text-sm font-bold border border-slate-700/50 shadow-xl">
-              <span className="text-slate-300">Lvl {level} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{runTarget}</span></span>
+              <span className="text-slate-300">{runMode === "endless" ? `Stage ${endlessLevel}` : `Lvl ${level}`} | Score: <span className={`score-readout text-lg ${scoreBump ? "score-bump" : ""}`}>{animatedScore}</span><span className="text-slate-500">/{runTarget}</span></span>
               {windForce !== 0 && (
                 <span className="text-sky-300 font-bold animate-pulse text-xs flex items-center gap-1">
                   💨 Wind: {windForce > 0 ? "👉 Right" : "👈 Left"}
@@ -5626,16 +5769,33 @@ Can you beat my score? Play ThinkFastBlast!`;
                 SCORE COMPLETE — Mission remaining: {runConfig.objective.label} ({objectiveStatus.current}/{objectiveStatus.required})
               </div>
             )}
-              <div className="win-goals game-board-width" aria-label="Level win requirements">
-              <div className={scoreGoalComplete ? "win-goal win-goal-complete" : "win-goal"}>
-                <span>{scoreGoalComplete ? "✓" : "1"} SCORE GOAL</span>
-                <strong>{totalScore}/{runTarget} points</strong>
-              </div>
-              <div className={objectiveStatus.complete ? "win-goal win-goal-complete" : "win-goal"}>
-                <span>{objectiveStatus.complete ? "✓" : "2"} LEVEL MISSION</span>
-                <strong>{runConfig.objective.label} · {objectiveStatus.current}/{objectiveStatus.required}</strong>
-              </div>
-              </div>
+              {runMode === "endless" ? (
+                <div className="win-goals game-board-width" aria-label="Endless status">
+                  <div className={totalScore >= runTarget ? "win-goal win-goal-complete" : "win-goal"}>
+                    <span>{totalScore >= runTarget ? "✓" : "1"} STAGE TARGET</span>
+                    <strong>{totalScore}/{runTarget} points</strong>
+                  </div>
+                  <div className={speedWavePieces > 0 ? "win-goal bg-amber-500/20 border-amber-500/30 text-amber-300 animate-pulse" : "win-goal"}>
+                    <span>{speedWavePieces > 0 ? "⚠️" : "⚡"} HAZARD METER</span>
+                    <strong>
+                      {speedWavePieces > 0 
+                        ? `SPEED WAVE: ${speedWavePieces} left!` 
+                        : `Next Hazard: in ${5 - ((endlessLevel - 1) % 5)} stages`}
+                    </strong>
+                  </div>
+                </div>
+              ) : (
+                <div className="win-goals game-board-width" aria-label="Level win requirements">
+                  <div className={scoreGoalComplete ? "win-goal win-goal-complete" : "win-goal"}>
+                    <span>{scoreGoalComplete ? "✓" : "1"} SCORE GOAL</span>
+                    <strong>{totalScore}/{runTarget} points</strong>
+                  </div>
+                  <div className={objectiveStatus.complete ? "win-goal win-goal-complete" : "win-goal"}>
+                    <span>{objectiveStatus.complete ? "✓" : "2"} LEVEL MISSION</span>
+                    <strong>{runConfig.objective.label} · {objectiveStatus.current}/{objectiveStatus.required}</strong>
+                  </div>
+                </div>
+              )}
 
               {activeMutator && (
                 <div className={`game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
@@ -5930,6 +6090,15 @@ Can you beat my score? Play ThinkFastBlast!`;
                     </button>
                     <button
                       type="button"
+                      onClick={() => startLevel(1, "endless")}
+                      className="home-action-card home-action-endless"
+                    >
+                      <span>♾️</span>
+                      <strong>Endless Overdrive</strong>
+                      <small>Scale, survive & rank scores</small>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => { playSFX("button"); setMenuTab("arena"); }}
                       className="home-action-card home-action-friends"
                     >
@@ -5946,6 +6115,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
                   <div className="home-secondary-actions">
                     <button type="button" onClick={() => startLevel(98)}>☀ Daily Challenge</button>
+                    <button type="button" onClick={() => { playSFX("button"); setMenuTab("leaderboard"); }}>👑 Leaderboard</button>
                     <button type="button" onClick={() => { playSFX("button"); setMenuTab("achievements"); }}>🏆 Achievements</button>
                     <button
                       type="button"
@@ -6500,6 +6670,15 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
               </section>
             </div>
+          ) : menuTab === "leaderboard" ? (
+            <EndlessLeaderboardView
+              stats={stats}
+              activeProfile={activeProfile}
+              onBack={() => {
+                playSFX("button");
+                setMenuTab("levels");
+              }}
+            />
           ) : menuTab === "achievements" ? (
             <div className="menu-panel achievement-cabinet w-full max-w-5xl z-10">
               <div className="achievement-cabinet-header">
