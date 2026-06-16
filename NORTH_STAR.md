@@ -7,11 +7,15 @@
 > no user-growth target. Optimize for craft and delight, not metrics.
 
 ## What this really is
-A juicy, immersive arcade puzzle game that happens to teach. Falling-block
-match mechanics fused with trivia/learning, built to feel like a *real* arcade
-game — game-feel, dopamine, particles, sound, progression — not an educational
-worksheet with a coat of paint. It exists to be genuinely fun to play (and for
-Landon's daughter to learn without noticing she's learning).
+The owner's **premier and only game** — a **feature-packed, fast-paced quiz /
+block-blast** game that players get **addicted** to while they learn and have fun
+at the same time. Falling-block match mechanics fused with trivia/learning, built
+to feel like a *real* arcade game — game-feel, dopamine, particles, sound,
+progression — not an educational worksheet with a coat of paint. (Also: Landon's
+daughter learns without noticing she's learning.)
+
+**Everything is fair game to improve** — the questions, the backend, the features,
+and the GUI. All of it should keep getting better.
 
 ## What "great" looks like
 - It feels **alive**: responsive controls, satisfying feedback on every action,
