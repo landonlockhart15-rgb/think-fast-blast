@@ -105,6 +105,9 @@ const SHOP_ITEMS = [
   })),
   { id: "theme_cyberpunk", name: "Cyberpunk Neon Theme", desc: "Adds glowing retro-future styling and cyber shadows to blocks", cost: 100, type: "theme" },
   { id: "theme_retro", name: "Retro Green Theme", desc: "Classic Matrix-style digital terminal grid with binary elements", cost: 120, type: "theme" },
+  { id: "theme_synthwave", name: "Synthwave Sunset Theme", desc: "Vibrant neon pink, purple, and orange blocks with horizontal grid glow", cost: 150, type: "theme" },
+  { id: "theme_nebula", name: "Nebula Cosmic Theme", desc: "Deep space nebula blocks with cosmic star dust and glowing borders", cost: 180, type: "theme" },
+  { id: "theme_gameboy", name: "Gameboy Classic Theme", desc: "Retro 4-shade green monochrome handheld console pixel style", cost: 200, type: "theme" },
   { id: "catalyst_bomb", name: "Catalyst Bomb Block", desc: "Enables rare 💣 block spawns that clear 3x3 grids when they land", cost: 150, type: "block" },
   { id: "catalyst_wildcard", name: "Wildcard Block", desc: "Enables rare ✨ block spawns that connect and clear any adjacent colors", cost: 200, type: "block" },
 ];
@@ -147,7 +150,81 @@ const getThemeCellColor = (baseColor, themeName) => {
     };
     return cyberpunkMap[baseColor] || baseColor;
   }
+  if (themeName === "theme_synthwave") {
+    const synthwaveMap = {
+      "bg-cyan-500": "synthwave-cyan",
+      "bg-yellow-400": "synthwave-yellow",
+      "bg-purple-500": "synthwave-purple",
+      "bg-orange-500": "synthwave-orange",
+      "bg-blue-500": "synthwave-blue",
+      "bg-green-500": "synthwave-green",
+      "bg-red-500": "synthwave-red",
+    };
+    return synthwaveMap[baseColor] || baseColor;
+  }
+  if (themeName === "theme_nebula") {
+    const nebulaMap = {
+      "bg-cyan-500": "nebula-cyan",
+      "bg-yellow-400": "nebula-yellow",
+      "bg-purple-500": "nebula-purple",
+      "bg-orange-500": "nebula-orange",
+      "bg-blue-500": "nebula-blue",
+      "bg-green-500": "nebula-green",
+      "bg-red-500": "nebula-red",
+    };
+    return nebulaMap[baseColor] || baseColor;
+  }
+  if (themeName === "theme_gameboy") {
+    const gameboyMap = {
+      "bg-cyan-500": "gameboy-dark",
+      "bg-blue-500": "gameboy-dark",
+      "bg-purple-500": "gameboy-medium",
+      "bg-red-500": "gameboy-medium",
+      "bg-orange-500": "gameboy-light",
+      "bg-yellow-400": "gameboy-light",
+      "bg-green-500": "gameboy-light",
+    };
+    return gameboyMap[baseColor] || baseColor;
+  }
   return baseColor;
+};
+
+const getBoardThemeClass = (themeName) => {
+  if (themeName === "theme_retro") {
+    return "bg-black border-[#10b981] shadow-[0_0_15px_rgba(16,185,129,0.3)]";
+  }
+  if (themeName === "theme_cyberpunk") {
+    return "bg-slate-950 border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.3)]";
+  }
+  if (themeName === "theme_synthwave") {
+    return "bg-[#0c051c] border-[#f43f5e] shadow-[0_0_15px_rgba(244,63,94,0.4)]";
+  }
+  if (themeName === "theme_nebula") {
+    return "bg-[#04020f] border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.4)]";
+  }
+  if (themeName === "theme_gameboy") {
+    return "bg-[#9bbc0f] border-[#0f380f] shadow-inner";
+  }
+  return "bg-slate-900 border-slate-700";
+};
+
+const getEmptyCellColor = (themeName) => {
+  if (themeName === "theme_retro") {
+    return "bg-emerald-950/20 border border-emerald-950/10";
+  }
+  if (themeName === "theme_cyberpunk") {
+    return "bg-pink-950/10 border border-pink-950/5";
+  }
+  if (themeName === "theme_synthwave") {
+    return "bg-purple-950/20 border border-purple-950/10";
+  }
+  if (themeName === "theme_nebula") {
+    return "bg-indigo-950/15 border border-indigo-950/10";
+  }
+  if (themeName === "theme_gameboy") {
+    return "bg-[#8bac0f]/30 border border-[#8bac0f]/20";
+  }
+  return "bg-slate-800";
 };
 
 const readSavedStats = () => {
@@ -464,11 +541,28 @@ function StoreItemPreview({ itemId }) {
 
     const render = () => {
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = "#0f172a"; // dark card background
+
+      let cardBg = "#0f172a";
+      let gridStroke = "rgba(51, 65, 85, 0.4)";
+      if (itemId === "theme_gameboy") {
+        cardBg = "#9bbc0f";
+        gridStroke = "rgba(15, 56, 15, 0.15)";
+      } else if (itemId === "theme_synthwave") {
+        cardBg = "#0c051c";
+        gridStroke = "rgba(244, 63, 94, 0.15)";
+      } else if (itemId === "theme_nebula") {
+        cardBg = "#04020f";
+        gridStroke = "rgba(99, 102, 241, 0.15)";
+      } else if (itemId === "theme_retro") {
+        cardBg = "#022c22";
+        gridStroke = "rgba(16, 185, 129, 0.15)";
+      }
+
+      ctx.fillStyle = cardBg;
       ctx.fillRect(0, 0, width, height);
 
       // Draw grid lines
-      ctx.strokeStyle = "rgba(51, 65, 85, 0.4)";
+      ctx.strokeStyle = gridStroke;
       ctx.lineWidth = 1;
       const cellSize = 22;
       const gridCols = 5;
@@ -556,6 +650,225 @@ function StoreItemPreview({ itemId }) {
           const charY = ((time * 1.5 + i * 20) % (gridRows * cellSize)) + startY;
           ctx.fillText(Math.random() < 0.5 ? "0" : "1", startX + i * cellSize + 8, charY);
         }
+      }
+      else if (itemId === "theme_synthwave") {
+        // Draw Synthwave background sun at the bottom of the grid
+        const sunX = width / 2;
+        const sunY = startY + gridRows * cellSize;
+        const sunRad = 26;
+        const sunGrad = ctx.createLinearGradient(0, sunY - sunRad, 0, sunY);
+        sunGrad.addColorStop(0, "#ff007f"); // hot pink
+        sunGrad.addColorStop(1, "#f97316"); // orange
+        ctx.fillStyle = sunGrad;
+        ctx.beginPath();
+        ctx.arc(sunX, sunY, sunRad, Math.PI, 2 * Math.PI);
+        ctx.fill();
+
+        // Draw horizontal cut lines across the sun
+        ctx.strokeStyle = cardBg;
+        ctx.lineWidth = 1.5;
+        for (let sy = sunY - sunRad + 4; sy < sunY; sy += 5) {
+          ctx.beginPath();
+          ctx.moveTo(sunX - sunRad, sy);
+          ctx.lineTo(sunX + sunRad, sy);
+          ctx.stroke();
+        }
+
+        themeBlocks.forEach((b) => {
+          const bx = startX + b.x * cellSize + 1.5;
+          const by = startY + b.y * cellSize + 1.5;
+          const size = cellSize - 3;
+          
+          const colors = ["#ff007f", "#d946ef", "#a855f7", "#ec4899"];
+          const blockColor = colors[(b.x + b.y) % colors.length];
+
+          const blockGrad = ctx.createLinearGradient(bx, by, bx, by + size);
+          blockGrad.addColorStop(0, blockColor);
+          blockGrad.addColorStop(1, "#1e0b36");
+
+          ctx.fillStyle = blockGrad;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = blockColor;
+          ctx.fillRect(bx, by, size, size);
+
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bx, by, size, size);
+          ctx.shadowBlur = 0;
+        });
+
+        // Falling piece animation
+        themeFallY += 0.5;
+        if (themeFallY > 1) {
+          themeFallY = -3;
+        }
+
+        const fallCol = 2;
+        const blockColor = "#f43f5e";
+        const shape = [[1, 1], [0, 1]];
+        shape.forEach((row, dy) => {
+          row.forEach((val, dx) => {
+            if (val) {
+              const gridY = themeFallY + dy;
+              if (gridY >= 0 && gridY < gridRows) {
+                const bx = startX + (fallCol + dx) * cellSize + 1.5;
+                const by = startY + gridY * cellSize + 1.5;
+                const size = cellSize - 3;
+
+                const blockGrad = ctx.createLinearGradient(bx, by, bx, by + size);
+                blockGrad.addColorStop(0, blockColor);
+                blockGrad.addColorStop(1, "#1e0b36");
+
+                ctx.fillStyle = blockGrad;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = blockColor;
+                ctx.fillRect(bx, by, size, size);
+                
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(bx, by, size, size);
+                ctx.shadowBlur = 0;
+              }
+            }
+          });
+        });
+      }
+      else if (itemId === "theme_nebula") {
+        // Draw cosmic star field
+        ctx.fillStyle = "#ffffff";
+        for (let s = 0; s < 10; s++) {
+          const starX = startX + ((s * 13 + time * 0.2) % (gridCols * cellSize));
+          const starY = startY + ((s * 19) % (gridRows * cellSize));
+          const starAlpha = 0.2 + 0.8 * Math.abs(Math.sin((time * 0.04 + s * 2)));
+          ctx.globalAlpha = starAlpha;
+          ctx.fillRect(starX, starY, 1.5, 1.5);
+        }
+        ctx.globalAlpha = 1.0;
+
+        // Draw soft nebula cloud
+        const cloudGrad = ctx.createRadialGradient(width/2, height/2, 2, width/2, height/2, 40);
+        cloudGrad.addColorStop(0, "rgba(168, 85, 247, 0.35)");
+        cloudGrad.addColorStop(0.5, "rgba(59, 130, 246, 0.2)");
+        cloudGrad.addColorStop(1, "rgba(4, 2, 15, 0)");
+        ctx.fillStyle = cloudGrad;
+        ctx.beginPath();
+        ctx.arc(width/2, height/2, 40, 0, Math.PI * 2);
+        ctx.fill();
+
+        themeBlocks.forEach((b) => {
+          const bx = startX + b.x * cellSize + 1.5;
+          const by = startY + b.y * cellSize + 1.5;
+          const size = cellSize - 3;
+          
+          const nebColors = ["#818cf8", "#c084fc", "#60a5fa", "#34d399"];
+          const glowColor = nebColors[(b.x + b.y) % nebColors.length];
+
+          ctx.fillStyle = "rgba(10, 10, 35, 0.9)";
+          ctx.fillRect(bx, by, size, size);
+
+          ctx.strokeStyle = glowColor;
+          ctx.lineWidth = 1.5;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = glowColor;
+          ctx.strokeRect(bx, by, size, size);
+
+          // Star center
+          ctx.fillStyle = "#fff";
+          ctx.shadowBlur = 2;
+          ctx.shadowColor = "#fff";
+          ctx.beginPath();
+          ctx.arc(bx + size/2, by + size/2, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.shadowBlur = 0;
+        });
+
+        // Falling piece animation
+        themeFallY += 0.4;
+        if (themeFallY > 1) {
+          themeFallY = -3;
+        }
+
+        const fallCol = 2;
+        const glowColor = "#a78bfa";
+        const shape = [[1, 1], [1, 1]];
+        shape.forEach((row, dy) => {
+          row.forEach((val, dx) => {
+            if (val) {
+              const gridY = themeFallY + dy;
+              if (gridY >= 0 && gridY < gridRows) {
+                const bx = startX + (fallCol + dx) * cellSize + 1.5;
+                const by = startY + gridY * cellSize + 1.5;
+                const size = cellSize - 3;
+
+                ctx.fillStyle = "rgba(10, 10, 35, 0.9)";
+                ctx.fillRect(bx, by, size, size);
+
+                ctx.strokeStyle = glowColor;
+                ctx.lineWidth = 1.5;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = glowColor;
+                ctx.strokeRect(bx, by, size, size);
+
+                // Star center
+                ctx.fillStyle = "#fff";
+                ctx.shadowBlur = 2;
+                ctx.shadowColor = "#fff";
+                ctx.beginPath();
+                ctx.arc(bx + size/2, by + size/2, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+              }
+            }
+          });
+        });
+      }
+      else if (itemId === "theme_gameboy") {
+        themeBlocks.forEach((b) => {
+          const bx = startX + b.x * cellSize + 1;
+          const by = startY + b.y * cellSize + 1;
+          const size = cellSize - 2;
+
+          ctx.fillStyle = "#306230";
+          ctx.fillRect(bx, by, size, size);
+
+          ctx.strokeStyle = "#8bac0f";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(bx + 1.5, by + 1.5, size - 3, size - 3);
+
+          ctx.strokeStyle = "#0f380f";
+          ctx.strokeRect(bx, by, size, size);
+        });
+
+        // Falling piece animation
+        themeFallY += 0.45;
+        if (themeFallY > 1) {
+          themeFallY = -3;
+        }
+
+        const fallCol = 2;
+        const shape = [[1, 1, 1], [0, 1, 0]];
+        shape.forEach((row, dy) => {
+          row.forEach((val, dx) => {
+            if (val) {
+              const gridY = themeFallY + dy;
+              if (gridY >= 0 && gridY < gridRows) {
+                const bx = startX + (fallCol + dx) * cellSize + 1;
+                const by = startY + gridY * cellSize + 1;
+                const size = cellSize - 2;
+
+                ctx.fillStyle = "#0f380f";
+                ctx.fillRect(bx, by, size, size);
+
+                ctx.strokeStyle = "#306230";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(bx + 1.5, by + 1.5, size - 3, size - 3);
+
+                ctx.strokeStyle = "#0f380f";
+                ctx.strokeRect(bx, by, size, size);
+              }
+            }
+          });
+        });
       }
       else if (itemId === "catalyst_bomb") {
         bombTimer += 1;
@@ -5351,14 +5664,14 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
                       const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
                       let cellColorClass = cell
                         ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
-                        : "bg-slate-800";
+                        : getEmptyCellColor(stats.activeTheme);
                       let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
 
                       if (cell?.isGhost) {
@@ -5427,7 +5740,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board bg-slate-900 border-4 border-slate-700 p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {(() => {
                     const displayBoard2 = board2.map(row => [...row]);
@@ -5484,7 +5797,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                         const isExploding = explodingCells2.some((item) => item.y === y && item.x === x);
                         let cellColorClass = cell
                           ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
-                          : "bg-slate-800";
+                          : getEmptyCellColor(stats.activeTheme);
                         let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
 
                         if (cell?.isGhost) {
@@ -5876,7 +6189,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board bg-slate-900 border-4 border-slate-700 p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -5887,7 +6200,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                   // Apply active styles including Matrix code values for Retro theme
                   let cellColorClass = cell
                     ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
-                    : "bg-slate-800";
+                    : getEmptyCellColor(stats.activeTheme);
                   let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cellColorClass}`;
 
                   if (cell?.isGhost) {
