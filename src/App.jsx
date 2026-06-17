@@ -244,6 +244,13 @@ const MUTATOR_DETAILS = {
     emoji: "🌀",
     color: "from-cyan-600 to-blue-500 text-cyan-100 border-cyan-500/30 bg-cyan-950/20",
     glow: "shadow-cyan-500/20"
+  },
+  volcanic_surge: {
+    name: "Volcanic Surge",
+    desc: "A rising, glowing lava floor creeps up every 3 questions answered!",
+    emoji: "🌋",
+    color: "from-red-600 to-orange-600 text-red-100 border-red-500/30 bg-red-950/20",
+    glow: "shadow-red-500/20"
   }
 };
 
@@ -1960,7 +1967,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       return undefined;
     }
 
-    const mutatorKeys = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck"];
+    const mutatorKeys = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck", "volcanic_surge"];
     const interval = setInterval(() => {
       setWheelIndex((prev) => (prev + 1) % mutatorKeys.length);
       playSFX("button");
@@ -2908,18 +2915,31 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Floor rising hazard
   const triggerFloorRise = useCallback((currentBoard) => {
+    const isLava = stateRef.current.activeMutator === "volcanic_surge";
     const newRow = Array(BOARD_WIDTH).fill(null);
-    const gap1 = Math.floor(Math.random() * BOARD_WIDTH);
-    let gap2 = Math.floor(Math.random() * BOARD_WIDTH);
-    while (gap2 === gap1) gap2 = Math.floor(Math.random() * BOARD_WIDTH);
 
-    for (let x = 0; x < BOARD_WIDTH; x += 1) {
-      if (x !== gap1 && x !== gap2) {
+    if (isLava) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
         newRow[x] = {
-          color: "bg-slate-500",
-          emoji: "🧱",
+          color: "bg-orange-600",
+          emoji: "🔥",
+          isLava: true,
           isStone: true,
         };
+      }
+    } else {
+      const gap1 = Math.floor(Math.random() * BOARD_WIDTH);
+      let gap2 = Math.floor(Math.random() * BOARD_WIDTH);
+      while (gap2 === gap1) gap2 = Math.floor(Math.random() * BOARD_WIDTH);
+
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (x !== gap1 && x !== gap2) {
+          newRow[x] = {
+            color: "bg-slate-500",
+            emoji: "🧱",
+            isStone: true,
+          };
+        }
       }
     }
 
@@ -2932,8 +2952,14 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     triggerShake();
     triggerFlash("danger");
-    addFloatingText("FLOOR RISING! 🌋", 4, BOARD_HEIGHT - 2);
-    setFeedback("Warning: Floor rising!");
+    if (isLava) {
+      addFloatingText("LAVA RISING! 🌋🔥", 4, BOARD_HEIGHT - 2);
+      setFeedback("Warning: Lava floor rising!");
+      playSFX("thunder");
+    } else {
+      addFloatingText("FLOOR RISING! 🌋", 4, BOARD_HEIGHT - 2);
+      setFeedback("Warning: Floor rising!");
+    }
   }, [totalScore, handleGameEnd, addFloatingText, triggerFlash, triggerShake]);
 
   // Timeout triggers
@@ -3374,6 +3400,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     const fruitEffects = new Set();
 
     const addCellToClear = (y, x) => {
+      if (board[y][x]?.isLava) return;
       if (!cellsToClear.some((cell) => cell.y === y && cell.x === x)) {
         cellsToClear.push({ y, x });
       }
@@ -3626,7 +3653,8 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (didLineClear) unlockAchievement("line");
         if (didColorMatch) unlockAchievement("bigmatch");
 
-        if ((level === 9 || level === 10) && stateRef.current.questionsSinceLastRise === 0) {
+        const isLava = stateRef.current.activeMutator === "volcanic_surge";
+        if (((level === 9 || level === 10) || isLava) && stateRef.current.questionsSinceLastRise === 0) {
           triggerFloorRise(afterClearBoard);
         }
       }, 400);
@@ -3745,12 +3773,14 @@ Can you beat my score? Play ThinkFastBlast!`;
     let didLineClear2 = false;
 
     const addCellToClear1 = (y, x) => {
+      if (board[y][x]?.isLava) return;
       if (!cellsToClear1.some((cell) => cell.y === y && cell.x === x)) {
         cellsToClear1.push({ y, x });
       }
     };
 
     const addCellToClear2 = (y, x) => {
+      if (board2[y][x]?.isLava) return;
       if (!cellsToClear2.some((cell) => cell.y === y && cell.x === x)) {
         cellsToClear2.push({ y, x });
       }
@@ -4785,7 +4815,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       }
     }
 
-    if (level === 9 || level === 10) {
+    if (level === 9 || level === 10 || stateRef.current.activeMutator === "volcanic_surge") {
       setQuestionsSinceLastRise((prev) => {
         const next = prev + 1;
         return next >= 3 ? 0 : next;
@@ -4803,7 +4833,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     const isSinglePlayer = requestedMode !== "ai_race" && requestedMode !== "endless" && nextLevel !== 98;
     let rolledMutator = null;
     if (isSinglePlayer) {
-      const mutatorOptions = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck"];
+      const mutatorOptions = ["double_drop", "inverse_gravity", "dopamine_rush", "chaos_deck", "volcanic_surge"];
       rolledMutator = mutatorOptions[Math.floor(Math.random() * mutatorOptions.length)];
     }
     setActiveMutator(rolledMutator);
@@ -5326,13 +5356,19 @@ Can you beat my score? Play ThinkFastBlast!`;
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
                       const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
-                      let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                      let cellColorClass = cell
+                        ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
+                        : "bg-slate-800";
                       let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
 
                       if (cell?.isGhost) {
                         cellClass += " ghost-block opacity-45";
                       } else {
-                        if (cell?.isStone) cellClass += " border border-slate-400 bg-slate-600";
+                        if (cell?.isLava) {
+                          cellClass += " border border-orange-500 bg-orange-600 animate-pulse animate-glow-lava";
+                        } else if (cell?.isStone) {
+                          cellClass += " border border-slate-400 bg-slate-600";
+                        }
                         if (isExploding) {
                            cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
                         }
@@ -5446,13 +5482,19 @@ Can you beat my score? Play ThinkFastBlast!`;
                     return displayBoard2.map((row, y) =>
                       row.map((cell, x) => {
                         const isExploding = explodingCells2.some((item) => item.y === y && item.x === x);
-                        let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                        let cellColorClass = cell
+                          ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
+                          : "bg-slate-800";
                         let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-xs select-none ${cellColorClass}`;
 
                         if (cell?.isGhost) {
                           cellClass += " ghost-block opacity-45";
                         } else {
-                          if (cell?.isStone) cellClass += " border border-slate-400 bg-slate-600";
+                          if (cell?.isLava) {
+                            cellClass += " border border-orange-500 bg-orange-600 animate-pulse animate-glow-lava";
+                          } else if (cell?.isStone) {
+                            cellClass += " border border-slate-400 bg-slate-600";
+                          }
                           if (isExploding) {
                             cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
                           }
@@ -5843,14 +5885,20 @@ Can you beat my score? Play ThinkFastBlast!`;
                   const isExploding = explodingCells.some((item) => item.y === y && item.x === x);
 
                   // Apply active styles including Matrix code values for Retro theme
-                  let cellColorClass = cell ? getThemeCellColor(cell.color, stats.activeTheme) : "bg-slate-800";
+                  let cellColorClass = cell
+                    ? (cell.isLava ? "" : getThemeCellColor(cell.color, stats.activeTheme))
+                    : "bg-slate-800";
                   let cellClass = `w-full h-full rounded-sm flex items-center justify-center text-sm md:text-base select-none ${cellColorClass}`;
 
                   if (cell?.isGhost) {
                     // Landing preview: faint, dashed outline of the live piece's resting spot.
                     cellClass += " ghost-block";
                   } else {
-                    if (cell?.isStone) cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
+                    if (cell?.isLava) {
+                      cellClass += " border-2 border-orange-600 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-red-500 via-orange-500 to-yellow-600 animate-glow-lava";
+                    } else if (cell?.isStone) {
+                      cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
+                    }
                     if (cell?.isTNT) cellClass += " animate-glow-tnt";
                     if (cell?.isDrill) cellClass += " animate-glow-drill";
                     if (cell?.isLightning) cellClass += " animate-glow-lightning";
