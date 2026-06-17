@@ -3503,7 +3503,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     // 5. Standard full-line clear
     for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      if (!board[y].every((cell) => cell !== null)) continue;
+      if (!board[y].every((cell) => cell !== null && !cell.isLava)) continue;
       for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear(y, x);
       pointsEarned += POINTS.LINE_CLEAR;
       didLineClear = true;
@@ -3879,7 +3879,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     // 5. Standard line clear
     for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      if (!board[y].every((cell) => cell !== null)) continue;
+      if (!board[y].every((cell) => cell !== null && !cell.isLava)) continue;
       for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear1(y, x);
       pointsEarned1 += POINTS.LINE_CLEAR;
       didLineClear1 = true;
@@ -4027,7 +4027,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
     // 5. Standard line clear
     for (let y = 0; y < BOARD_HEIGHT; y += 1) {
-      if (!board2[y].every((cell) => cell !== null)) continue;
+      if (!board2[y].every((cell) => cell !== null && !cell.isLava)) continue;
       for (let x = 0; x < BOARD_WIDTH; x += 1) addCellToClear2(y, x);
       pointsEarned2 += POINTS.LINE_CLEAR;
       didLineClear2 = true;
