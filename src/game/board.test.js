@@ -114,3 +114,25 @@ test("fruit effects create distinct color, cross, and diagonal clear patterns", 
     { y: 8, x: 2 },
   ]);
 });
+
+test("findConnectedColorMatches ignores lava blocks similar to stones", () => {
+  const board = createEmptyBoard();
+  const red = { color: "bg-red-500" };
+
+  board[15][0] = red;
+  board[14][1] = red;
+  board[13][2] = red;
+  board[12][3] = { ...red, isLava: true, isStone: true };
+
+  assert.deepEqual(findConnectedColorMatches(board), []);
+});
+
+test("findFullRows reports rows filled by lava blocks", () => {
+  const board = createEmptyBoard();
+  board[BOARD_HEIGHT - 1] = Array.from({ length: BOARD_WIDTH }, () =>
+    ({ color: "bg-orange-600", isLava: true, isStone: true })
+  );
+
+  assert.deepEqual(findFullRows(board), [BOARD_HEIGHT - 1]);
+});
+

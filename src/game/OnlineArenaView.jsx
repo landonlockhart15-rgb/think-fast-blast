@@ -80,9 +80,11 @@ function BoardGrid({ board, piece, canControl }) {
         row.map((cell, x) => (
           <div
             key={`${y}-${x}`}
-            className={`online-arena-cell ${cell?.color || "bg-slate-800"} ${
-              cell?.isGhost ? "ghost-block opacity-40" : ""
-            } ${cell?.isStone ? "border border-slate-400 bg-slate-600" : ""}`}
+            className={`online-arena-cell ${
+              cell?.isLava ? "" : (cell?.color || "bg-slate-800")
+            } ${cell?.isGhost ? "ghost-block opacity-40" : ""} ${
+              cell?.isLava ? "border border-orange-500 bg-orange-600 animate-pulse animate-glow-lava" : ""
+            } ${cell?.isStone && !cell?.isLava ? "border border-slate-400 bg-slate-600" : ""}`}
           >
             {cell?.emoji || ""}
           </div>
