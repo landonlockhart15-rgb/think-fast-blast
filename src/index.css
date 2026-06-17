@@ -1710,6 +1710,100 @@ button {
   font-family: monospace;
 }
 
+/* Synthwave Sunset Theme Colors */
+.synthwave-cyan {
+  background: linear-gradient(180deg, #06b6d4 0%, #0891b2 100%) !important;
+  box-shadow: 0 0 10px #06b6d4, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #22d3ee !important;
+}
+.synthwave-yellow {
+  background: linear-gradient(180deg, #eab308 0%, #ca8a04 100%) !important;
+  box-shadow: 0 0 10px #eab308, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #fef08a !important;
+}
+.synthwave-purple {
+  background: linear-gradient(180deg, #a855f7 0%, #7c3aed 100%) !important;
+  box-shadow: 0 0 10px #a855f7, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #c084fc !important;
+}
+.synthwave-orange {
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%) !important;
+  box-shadow: 0 0 10px #f97316, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #ffedd5 !important;
+}
+.synthwave-blue {
+  background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 0 10px #3b82f6, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #93c5fd !important;
+}
+.synthwave-green {
+  background: linear-gradient(180deg, #10b981 0%, #059669 100%) !important;
+  box-shadow: 0 0 10px #10b981, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #6ee7b7 !important;
+}
+.synthwave-red {
+  background: linear-gradient(180deg, #ec4899 0%, #db2777 100%) !important;
+  box-shadow: 0 0 10px #ec4899, inset 0 1px 2px rgba(255,255,255,0.4) !important;
+  border: 1.5px solid #fbcfe8 !important;
+}
+
+/* Nebula Cosmic Theme Colors */
+.nebula-cyan {
+  background: radial-gradient(circle, #0e172c 50%, #0369a1 100%) !important;
+  box-shadow: 0 0 12px rgba(14, 165, 233, 0.8), inset 0 0 4px rgba(14, 165, 233, 0.4) !important;
+  border: 1.5px solid #38bdf8 !important;
+}
+.nebula-yellow {
+  background: radial-gradient(circle, #1e1b4b 50%, #6366f1 100%) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.8), inset 0 0 4px rgba(99, 102, 241, 0.4) !important;
+  border: 1.5px solid #818cf8 !important;
+}
+.nebula-purple {
+  background: radial-gradient(circle, #1e1b4b 50%, #a855f7 100%) !important;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.8), inset 0 0 4px rgba(168, 85, 247, 0.4) !important;
+  border: 1.5px solid #c084fc !important;
+}
+.nebula-orange {
+  background: radial-gradient(circle, #1e1b4b 50%, #d946ef 100%) !important;
+  box-shadow: 0 0 12px rgba(217, 70, 239, 0.8), inset 0 0 4px rgba(217, 70, 239, 0.4) !important;
+  border: 1.5px solid #f472b6 !important;
+}
+.nebula-blue {
+  background: radial-gradient(circle, #0f172a 50%, #2563eb 100%) !important;
+  box-shadow: 0 0 12px rgba(37, 99, 235, 0.8), inset 0 0 4px rgba(37, 99, 235, 0.4) !important;
+  border: 1.5px solid #60a5fa !important;
+}
+.nebula-green {
+  background: radial-gradient(circle, #064e3b 50%, #10b981 100%) !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.8), inset 0 0 4px rgba(16, 185, 129, 0.4) !important;
+  border: 1.5px solid #34d399 !important;
+}
+.nebula-red {
+  background: radial-gradient(circle, #1e1b4b 50%, #f43f5e 100%) !important;
+  box-shadow: 0 0 12px rgba(244, 63, 94, 0.8), inset 0 0 4px rgba(244, 63, 94, 0.4) !important;
+  border: 1.5px solid #fda4af !important;
+}
+
+/* Gameboy Classic Theme Colors */
+.gameboy-dark {
+  background-color: #306230 !important;
+  border: 1.5px solid #0f380f !important;
+  box-shadow: inset 0 0 0 2px #0f380f, inset 2px 2px 0 0 #8bac0f !important;
+}
+.gameboy-medium {
+  background-color: #557c15 !important;
+  border: 1.5px solid #0f380f !important;
+  box-shadow: inset 0 0 0 2px #0f380f, inset 2px 2px 0 0 #8bac0f !important;
+}
+.gameboy-light {
+  background-color: #8bac0f !important;
+  border: 1.5px solid #0f380f !important;
+  box-shadow: inset 0 0 0 2px #0f380f, inset 2px 2px 0 0 #9bbc0f !important;
+}
+.bg-gameboy-lightest {
+  background-color: rgba(139, 172, 15, 0.15) !important;
+}
+
 .ghost-block {
   opacity: 0.30 !important;
   border: 2px dashed rgba(255, 255, 255, 0.45) !important;
