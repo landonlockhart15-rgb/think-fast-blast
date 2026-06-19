@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   BOARD_HEIGHT,
@@ -1110,11 +1110,11 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
   const activePieceRef = useRef(activePiece);
   const correctStreakRef = useRef(correctStreak);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     activePieceRef.current = activePiece;
   }, [activePiece]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     correctStreakRef.current = correctStreak;
   }, [correctStreak]);
 
