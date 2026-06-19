@@ -191,7 +191,15 @@ export const findFruitEffectCells = (currentBoard, centerY, centerX, fruitType, 
 
 export const clearBoardCells = (currentBoard, cellsToClear) => {
   const nextBoard = currentBoard.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
-  cellsToClear.forEach((cell) => {
+  const seen = new Set();
+  const uniqueCells = cellsToClear.filter((cell) => {
+    if (!cell) return false;
+    const key = `${cell.y}:${cell.x}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  uniqueCells.forEach((cell) => {
     const boardCell = nextBoard[cell.y]?.[cell.x];
     if (boardCell) {
       if (boardCell.isHeavyStone && boardCell.heavyHits > 1) {
