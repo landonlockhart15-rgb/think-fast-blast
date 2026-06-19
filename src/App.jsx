@@ -16,6 +16,7 @@ import {
 import { QUESTION_BANKS } from "./data/questions";
 import {
   checkCollision,
+  clearBoardCells,
   createEmptyBoard,
   findFruitEffectCells,
   rotateShapeClockwise,
@@ -1295,6 +1296,8 @@ function RunTelemetryPanel({
   strikesAllowed,
   objective,
   objectiveStatus,
+  heatLevel = 0,
+  coolingRemaining = 0,
 }) {
   const occupiedCells = board.reduce(
     (count, row) => count + row.reduce((rowCount, cell) => rowCount + (cell ? 1 : 0), 0),
@@ -1327,6 +1330,10 @@ function RunTelemetryPanel({
                 ? "Clean Block"
                 : "Stone";
 
+  const heatMeter = coolingRemaining > 0
+    ? { label: "System Cooling", value: `${coolingRemaining} Blocks`, progress: Math.min(100, Math.round((coolingRemaining / 3) * 100)), tone: "blue" }
+    : { label: "Fever Heat", value: `Lvl ${heatLevel}/5`, progress: Math.min(100, Math.round((heatLevel / 5) * 100)), tone: heatLevel === 5 ? "red" : heatLevel >= 3 ? "amber" : "cyan" };
+
   const meters = [
     { label: "Score Required", value: `${totalScore}/${targetScore}`, progress: targetProgress, tone: "cyan" },
     {
@@ -1338,6 +1345,7 @@ function RunTelemetryPanel({
     { label: chargeLabel, value: `${correctStreak}x`, progress: chargeProgress, tone: "amber" },
     { label: "Board Heat", value: `${boardPressure}%`, progress: boardPressure, tone: boardPressure > 55 ? "red" : "emerald" },
     { label: "Strike Risk", value: `${misses}/${strikesAllowed}`, progress: (misses / strikesAllowed) * 100, tone: "red" },
+    heatMeter,
   ];
 
   return (
@@ -2115,6 +2123,8 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Redesign States
   const [correctStreak, setCorrectStreak] = useState(0);
+  const [heatLevel, setHeatLevel] = useState(0);
+  const [coolingRemaining, setCoolingRemaining] = useState(0);
   const [floatingTexts, setFloatingTexts] = useState([]);
   const [shake, setShake] = useState(false);
   const [windForce, setWindForce] = useState(0);
@@ -2243,6 +2253,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       isPaused,
       level,
       correctStreak,
+      heatLevel,
+      coolingRemaining,
       questionIndex,
       shuffledQuestions,
       misses,
@@ -2264,7 +2276,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       arenaMode,
       aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
   useEffect(() => {
     saveProgress(maxUnlockedLevel);
@@ -3195,6 +3207,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     setTotalScore2(0);
     setCorrectStreak(0);
     setCorrectStreak2(0);
+    setHeatLevel(0);
+    setCoolingRemaining(0);
     setMisses(0);
     setMisses2(0);
 
@@ -3291,9 +3305,11 @@ Can you beat my score? Play ThinkFastBlast!`;
         const boardX = piece.x + x;
         if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
-            color: "bg-slate-500",
-            emoji: "🧱",
+            color: "bg-zinc-800",
+            emoji: "🪨",
             isStone: true,
+            isHeavyStone: true,
+            heavyHits: 2,
           };
         }
       });
@@ -3302,6 +3318,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setCorrectStreak(0);
+    setHeatLevel(0);
+    setCoolingRemaining(3);
 
     const question = questions[qIdx];
     const correctAnswer = question ? question.options[question.answer] : "unknown";
@@ -3407,6 +3425,9 @@ Can you beat my score? Play ThinkFastBlast!`;
   const spawnQuizPiece = useCallback(() => {
     if (speedWavePieces > 0) {
       setSpeedWavePieces((prev) => prev - 1);
+    }
+    if (stateRef.current.coolingRemaining > 0) {
+      setCoolingRemaining((prev) => prev - 1);
     }
     const activeLevel = stateRef.current.level;
     const isFirstBlock = stateRef.current.questionIndex === 0;
@@ -3690,9 +3711,15 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (runMode === "endless" && speedWavePieces > 0) {
       speed = Math.max(5, Math.round(speed / 2));
     }
+    if (coolingRemaining > 0) {
+      speed = Math.round(speed * 1.4);
+    } else if (heatLevel > 0) {
+      const heatMultiplier = 1.0 - Math.min(0.5, heatLevel * 0.1);
+      speed = Math.max(5, Math.round(speed * heatMultiplier));
+    }
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
-  }, [gameState, isPaused, level, runMode, endlessLevel, speedWavePieces, moveDown, runConfig.difficulty.gravityMultiplier]);
+  }, [gameState, isPaused, level, runMode, endlessLevel, speedWavePieces, moveDown, runConfig.difficulty.gravityMultiplier, heatLevel, coolingRemaining]);
 
   // -------------------------------------------------------------------------
   // Board resolver: blasts, lines, combos, gravity, win/loss
@@ -3901,10 +3928,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       }
 
       const timer = setTimeout(() => {
-        const afterClearBoard = board.map((row) => [...row]);
-        cellsToClear.forEach((cell) => {
-          afterClearBoard[cell.y][cell.x] = null;
-        });
+        const afterClearBoard = clearBoardCells(board, cellsToClear);
 
         for (let x = 0; x < BOARD_WIDTH; x += 1) {
           let writeY = BOARD_HEIGHT - 1;
@@ -4415,10 +4439,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       const timer = setTimeout(() => {
         // Resolve Board 1 falling gravity
         if (hasClears1) {
-          const afterClearBoard = board.map((row) => [...row]);
-          cellsToClear1.forEach((cell) => {
-            afterClearBoard[cell.y][cell.x] = null;
-          });
+          const afterClearBoard = clearBoardCells(board, cellsToClear1);
 
           for (let x = 0; x < BOARD_WIDTH; x += 1) {
             let writeY = BOARD_HEIGHT - 1;
@@ -4459,10 +4480,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         // Resolve Board 2 falling gravity
         if (hasClears2) {
-          const afterClearBoard = board2.map((row) => [...row]);
-          cellsToClear2.forEach((cell) => {
-            afterClearBoard[cell.y][cell.x] = null;
-          });
+          const afterClearBoard = clearBoardCells(board2, cellsToClear2);
 
           for (let x = 0; x < BOARD_WIDTH; x += 1) {
             let writeY = BOARD_HEIGHT - 1;
@@ -5011,6 +5029,16 @@ Can you beat my score? Play ThinkFastBlast!`;
       triggerFlash("success");
       vibrate(nextStreak >= 5 ? [18, 40, 18] : 16);
       setCorrectStreak(nextStreak);
+      setCoolingRemaining(0);
+      setHeatLevel((prev) => {
+        const next = Math.min(5, prev + 1);
+        if (next === 5 && prev < 5) {
+          addFloatingText("MAX HEAT! 🔥⚡", piece?.x || 5, piece?.y || 4);
+        } else if (next > prev) {
+          addFloatingText(`HEAT UP! 🔥 x${next}`, piece?.x || 5, piece?.y || 4);
+        }
+        return next;
+      });
       setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
       const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
       setTotalScore((score) => score + POINTS.CORRECT_ANSWER * (isDopamine ? 2 : 1));
@@ -5061,18 +5089,22 @@ Can you beat my score? Play ThinkFastBlast!`;
       triggerFlash("danger");
       vibrate([60, 30, 90]);
       setCorrectStreak(0);
+      setHeatLevel(0);
+      setCoolingRemaining(3);
       const correctAnswer = question.options[question.answer];
       const nextMisses = currentMisses + 1;
       setMisses(nextMisses);
       setLastCorrectAnswer(correctAnswer);
-      setFeedback(`Wrong! The answer was ${correctAnswer}. Stone block incoming!`);
+      setFeedback(`Wrong! The answer was ${correctAnswer}. Heavy Stone block incoming!`);
 
       setIsControllable(false);
       const stonePiece = {
         ...piece,
-        color: "bg-slate-500",
-        emoji: "🧱",
+        color: "bg-zinc-800",
+        emoji: "🪨",
         isStone: true,
+        isHeavyStone: true,
+        heavyHits: 2,
       };
 
       const isInverse = stateRef.current.activeMutator === "inverse_gravity";
@@ -5100,6 +5132,8 @@ Can you beat my score? Play ThinkFastBlast!`;
               color: lockedStonePiece.color,
               isStone: true,
               emoji: lockedStonePiece.emoji,
+              isHeavyStone: lockedStonePiece.isHeavyStone,
+              heavyHits: lockedStonePiece.heavyHits,
             };
           }
         });
@@ -5202,6 +5236,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     setShareFeedback("");
 
     setCorrectStreak(0);
+    setHeatLevel(0);
+    setCoolingRemaining(0);
     setMaxStreak(0);
     setIsPaused(false);
     setWindForce(0);
@@ -6164,6 +6200,17 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
               )}
 
+              {coolingRemaining > 0 && (
+                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-blue-500 bg-gradient-to-r from-blue-900 to-indigo-950 text-[11px] font-black tracking-wide uppercase text-center shadow text-blue-300 animate-pulse">
+                  ❄️ COOLING ACTIVE: Gravity slowed · Heavy stones spawning · {coolingRemaining} blocks remaining
+                </div>
+              )}
+              {heatLevel > 0 && coolingRemaining === 0 && (
+                <div className={`game-board-width mt-2 p-2.5 rounded-xl border ${heatLevel === 5 ? "border-red-500 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-600 text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]" : "border-amber-500 bg-gradient-to-r from-amber-700 to-orange-800 text-amber-200"} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
+                  🔥 HEAT LEVEL {heatLevel}/5: Speed +{heatLevel * 10}% {heatLevel >= 3 && "· Visual Overdrive!"}
+                </div>
+              )}
+
               {Object.entries(BOARD_POWERS).some(([id]) => stats.unlockedItems.includes(id)) && (
                 <div className="power-deck game-board-width" aria-label="Power Deck">
                   <span>POWER DECK</span>
@@ -6189,7 +6236,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "combo-heat-1" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -6210,7 +6257,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                     if (cell?.isLava) {
                       cellClass += " border-2 border-orange-600 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-red-500 via-orange-500 to-yellow-600 animate-glow-lava";
                     } else if (cell?.isStone) {
-                      cellClass += " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
+                      cellClass += cell.isHeavyStone
+                        ? " border-2 border-zinc-500 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-zinc-700 to-zinc-950 shadow-[0_0_8px_rgba(24,24,27,0.8)]"
+                        : " border-2 border-slate-400 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-500 to-slate-700";
                     }
                     if (cell?.isTNT) cellClass += " animate-glow-tnt";
                     if (cell?.isDrill) cellClass += " animate-glow-drill";
@@ -7839,6 +7888,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                   strikesAllowed={strikeLimit}
                   objective={runConfig.objective}
                   objectiveStatus={objectiveStatus}
+                  heatLevel={heatLevel}
+                  coolingRemaining={coolingRemaining}
                 />
               </div>
             )}
