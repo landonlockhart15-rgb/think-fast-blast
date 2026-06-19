@@ -188,3 +188,28 @@ export const findFruitEffectCells = (currentBoard, centerY, centerX, fruitType, 
 
   return cells;
 };
+
+export const clearBoardCells = (currentBoard, cellsToClear) => {
+  const nextBoard = currentBoard.map((row) => row.map((cell) => (cell ? { ...cell } : null)));
+  const seen = new Set();
+  const uniqueCells = cellsToClear.filter((cell) => {
+    if (!cell) return false;
+    const key = `${cell.y}:${cell.x}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  uniqueCells.forEach((cell) => {
+    const boardCell = nextBoard[cell.y]?.[cell.x];
+    if (boardCell) {
+      if (boardCell.isHeavyStone && boardCell.heavyHits > 1) {
+        boardCell.heavyHits -= 1;
+        boardCell.emoji = "🧱"; // show cracked brick appearance when damaged
+      } else {
+        nextBoard[cell.y][cell.x] = null;
+      }
+    }
+  });
+  return nextBoard;
+};
+

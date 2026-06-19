@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { BOARD_HEIGHT, BOARD_WIDTH } from "../data/constants.js";
 import {
   checkCollision,
+  clearBoardCells,
   createEmptyBoard,
   findBlastCells,
   findConnectedColorMatches,
@@ -135,4 +136,69 @@ test("findFullRows reports rows filled by lava blocks", () => {
 
   assert.deepEqual(findFullRows(board), [BOARD_HEIGHT - 1]);
 });
+
+test("clearBoardCells clears normal blocks and decrements heavy stone hits", () => {
+  const board = createEmptyBoard();
+  board[15][0] = { color: "bg-red-500" };
+  board[15][1] = { color: "bg-zinc-800", isStone: true, isHeavyStone: true, heavyHits: 2, emoji: "🪨" };
+  board[15][2] = { color: "bg-zinc-800", isStone: true, isHeavyStone: true, heavyHits: 1, emoji: "🪨" };
+
+  const cellsToClear = [
+    { y: 15, x: 0 },
+    { y: 15, x: 1 },
+    { y: 15, x: 2 }
+  ];
+
+  const nextBoard = clearBoardCells(board, cellsToClear);
+
+  assert.equal(nextBoard[15][0], null);
+  assert.ok(nextBoard[15][1]);
+  assert.equal(nextBoard[15][1].heavyHits, 1);
+  assert.equal(nextBoard[15][1].emoji, "🧱");
+  assert.equal(nextBoard[15][2], null);
+});
+
+test("clearBoardCells leaves the input board untouched while damaging heavy stones", () => {
+  const board = createEmptyBoard();
+  const heavyStone = { color: "bg-zinc-800", isStone: true, isHeavyStone: true, heavyHits: 2, emoji: "🪨" };
+  board[14][4] = heavyStone;
+
+  const nextBoard = clearBoardCells(board, [{ y: 14, x: 4 }]);
+
+  assert.notEqual(nextBoard, board);
+  assert.notEqual(nextBoard[14], board[14]);
+  assert.notEqual(nextBoard[14][4], heavyStone);
+  assert.deepEqual(board[14][4], heavyStone);
+  assert.equal(nextBoard[14][4].heavyHits, 1);
+});
+
+test("clearBoardCells treats duplicate clear coordinates as one hit during a single clear event", () => {
+  const board = createEmptyBoard();
+  board[10][5] = { color: "bg-zinc-800", isStone: true, isHeavyStone: true, heavyHits: 2, emoji: "🪨" };
+
+  const nextBoard = clearBoardCells(board, [
+    { y: 10, x: 5 },
+    { y: 10, x: 5 },
+  ]);
+
+  assert.ok(nextBoard[10][5]);
+  assert.equal(nextBoard[10][5].heavyHits, 1);
+});
+
+test("clearBoardCells ignores empty cells and out-of-bounds clear requests", () => {
+  const board = createEmptyBoard();
+  board[0][0] = { color: "bg-green-500" };
+
+  const nextBoard = clearBoardCells(board, [
+    { y: -1, x: 0 },
+    { y: 0, x: -1 },
+    { y: BOARD_HEIGHT, x: 0 },
+    { y: 0, x: BOARD_WIDTH },
+    { y: 5, x: 5 },
+  ]);
+
+  assert.deepEqual(nextBoard[0][0], { color: "bg-green-500" });
+  assert.equal(nextBoard[5][5], null);
+});
+
 
