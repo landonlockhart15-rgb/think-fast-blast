@@ -43,13 +43,18 @@ test("BoardParticlesCanvas RAF loop reads latest refs instead of stale props", (
   assert.doesNotMatch(updateBody, /activePiece\.shape\.forEach/);
 });
 
-test("BoardParticlesCanvas keeps the RAF effect long-lived and cancels the latest frame", () => {
+test("BoardParticlesCanvas keeps the RAF effect long-lived and tears down browser resources", () => {
   const source = getBoardParticlesCanvasSource();
   const animationStart = source.indexOf("const updateAndDraw = () => {");
   const effectEnd = source.indexOf("\n  }, []);", animationStart);
   assert.ok(effectEnd > animationStart, "RAF effect should have an empty dependency array");
 
   const effectBody = source.slice(animationStart, effectEnd);
+  const cleanupStart = effectBody.indexOf("return () => {");
+  assert.ok(cleanupStart >= 0, "RAF effect should register an unmount cleanup");
+
+  const cleanupBody = effectBody.slice(cleanupStart);
   assert.match(effectBody, /animationId = requestAnimationFrame\(updateAndDraw\);/);
-  assert.match(effectBody, /cancelAnimationFrame\(animationId\);/);
+  assert.match(cleanupBody, /cancelAnimationFrame\(animationId\);/);
+  assert.match(cleanupBody, /window\.removeEventListener\("resize", resize\);/);
 });
