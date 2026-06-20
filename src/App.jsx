@@ -1269,10 +1269,6 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
     return () => {
       cancelAnimationFrame(animationId);
       window.removeEventListener("resize", resize);
-      activePieceRef.current = null;
-      correctStreakRef.current = 0;
-      particlesRef.current = [];
-      prevStreakRef.current = 0;
     };
   }, []);
 
