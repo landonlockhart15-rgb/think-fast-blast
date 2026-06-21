@@ -2287,46 +2287,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     };
   }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, isFrenzyActive, isDesperationActive, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
-  // Dynamic Pressure Mutators - state change notifications
-  const prevFrenzyRef = useRef(false);
-  const prevDesperationRef = useRef(false);
 
-  useEffect(() => {
-    // Only trigger notifications if the game is active
-    if (gameState !== "dropping" && gameState !== "resolving" && gameState !== "quiz") {
-      prevFrenzyRef.current = isFrenzyActive;
-      prevDesperationRef.current = isDesperationActive;
-      return;
-    }
-
-    if (isFrenzyActive && !prevFrenzyRef.current) {
-      playSFX("thunder");
-      triggerFlash("blast");
-      vibrate([40, 40, 80]);
-      addFloatingText("🔥 FRENZY ACTIVE! ⚡", 5, 3);
-      pushToast({
-        kind: "info",
-        emoji: "⚡",
-        title: "Frenzy Mode!",
-        desc: "Streak 5+! Fall speed doubled and points are x2!"
-      });
-    }
-    prevFrenzyRef.current = isFrenzyActive;
-
-    if (isDesperationActive && !prevDesperationRef.current) {
-      playSFX("incorrect");
-      triggerFlash("danger");
-      vibrate([80, 80]);
-      addFloatingText("🚨 DESPERATION ACTIVE! 🪨", 5, 3);
-      pushToast({
-        kind: "info",
-        emoji: "🚨",
-        title: "Desperation Mode!",
-        desc: "Blocks near the top! Gravity slowed but wrong answers spawn heavier stone!"
-      });
-    }
-    prevDesperationRef.current = isDesperationActive;
-  }, [isFrenzyActive, isDesperationActive, gameState, pushToast, playSFX, triggerFlash, vibrate, addFloatingText]);
 
   useEffect(() => {
     saveProgress(maxUnlockedLevel);
@@ -2604,6 +2565,47 @@ Can you beat my score? Play ThinkFastBlast!`;
       setTotalScore((score) => score + result.cleared * 2 * (isDopamine ? 2 : 1));
     }, reduceMotion ? 120 : 520);
   }, [addFloatingText, pushToast, reduceMotion, stats.unlockedItems, triggerFlash, triggerShake, usedPowers, vibrate]);
+
+  // Dynamic Pressure Mutators - state change notifications
+  const prevFrenzyRef = useRef(false);
+  const prevDesperationRef = useRef(false);
+
+  useEffect(() => {
+    // Only trigger notifications if the game is active
+    if (gameState !== "dropping" && gameState !== "resolving" && gameState !== "quiz") {
+      prevFrenzyRef.current = isFrenzyActive;
+      prevDesperationRef.current = isDesperationActive;
+      return;
+    }
+
+    if (isFrenzyActive && !prevFrenzyRef.current) {
+      playSFX("thunder");
+      triggerFlash("blast");
+      vibrate([40, 40, 80]);
+      addFloatingText("🔥 FRENZY ACTIVE! ⚡", 5, 3);
+      pushToast({
+        kind: "info",
+        emoji: "⚡",
+        title: "Frenzy Mode!",
+        desc: "Streak 5+! Fall speed doubled and points are x2!"
+      });
+    }
+    prevFrenzyRef.current = isFrenzyActive;
+
+    if (isDesperationActive && !prevDesperationRef.current) {
+      playSFX("incorrect");
+      triggerFlash("danger");
+      vibrate([80, 80]);
+      addFloatingText("🚨 DESPERATION ACTIVE! 🪨", 5, 3);
+      pushToast({
+        kind: "info",
+        emoji: "🚨",
+        title: "Desperation Mode!",
+        desc: "Blocks near the top! Gravity slowed but wrong answers spawn heavier stone!"
+      });
+    }
+    prevDesperationRef.current = isDesperationActive;
+  }, [isFrenzyActive, isDesperationActive, gameState, pushToast, playSFX, triggerFlash, vibrate, addFloatingText]);
 
   // Helper to generate a Power-up block
   const makePowerUp = (piece, streak) => {
