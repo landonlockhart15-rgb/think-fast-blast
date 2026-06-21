@@ -5190,6 +5190,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       playSFX("incorrect");
       triggerFlash("danger");
       vibrate([60, 30, 90]);
+      // Heavy stone slams straight onto the board here (instant lock, bypassing
+      // lockPiece), so add the impact feedback that landing would normally give.
+      triggerShake();
+      triggerBoardRecoil();
       setCorrectStreak(0);
       setHeatLevel(0);
       setCoolingRemaining(3);
@@ -5271,7 +5275,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
