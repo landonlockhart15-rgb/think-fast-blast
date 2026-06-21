@@ -1534,6 +1534,38 @@ button {
   animation: shake-amplified 0.3s ease-in-out;
 }
 
+@keyframes blockSettle {
+  0% { transform: translateY(-8px) scaleY(0.85) scaleX(1.1); }
+  35% { transform: translateY(3px) scaleY(1.1) scaleX(0.9); }
+  65% { transform: translateY(-2px) scaleY(0.95) scaleX(1.02); }
+  100% { transform: translateY(0) scaleY(1) scaleX(1); }
+}
+.animate-block-settle {
+  animation: blockSettle 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+@keyframes boardRecoil {
+  0% { transform: translateY(0); }
+  15% { transform: translateY(6px); }
+  45% { transform: translateY(-3px); }
+  75% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+.animate-board-recoil {
+  animation: boardRecoil 0.22s ease-out;
+}
+
+@keyframes boardRecoil2 {
+  0% { transform: translateY(0); }
+  15% { transform: translateY(6px); }
+  45% { transform: translateY(-3px); }
+  75% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+.animate-board-recoil2 {
+  animation: boardRecoil2 0.22s ease-out;
+}
+
 /* Floating points/combo text drift */
 @keyframes floatUp {
   0% { transform: translateY(0) scale(1); opacity: 1; }

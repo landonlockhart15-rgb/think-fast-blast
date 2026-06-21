@@ -1828,6 +1828,7 @@ export default function App() {
   const [explodingCells2, setExplodingCells2] = useState([]);
   const [floatingTexts2, setFloatingTexts2] = useState([]);
   const [shake2, setShake2] = useState(false);
+  const [boardRecoil2, setBoardRecoil2] = useState(false);
   const [aiQuip, setAiQuip] = useState(AI_THINKING_LINES[0]);
   const [aiThinkingStage, setAiThinkingStage] = useState("reading");
   const [aiRaceMetrics, setAiRaceMetrics] = useState(createAiRaceMetrics);
@@ -2127,6 +2128,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const [coolingRemaining, setCoolingRemaining] = useState(0);
   const [floatingTexts, setFloatingTexts] = useState([]);
   const [shake, setShake] = useState(false);
+  const [boardRecoil, setBoardRecoil] = useState(false);
   const [windForce, setWindForce] = useState(0);
   const [questionsSinceLastRise, setQuestionsSinceLastRise] = useState(0);
   const [recoveryTimer, setRecoveryTimer] = useState(4);
@@ -2456,6 +2458,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     setTimeout(() => setShake(false), 300);
   }, [reduceMotion, screenShakeEnabled]);
 
+  // Trigger board vertical recoil/impact shake when blocks land
+  const triggerBoardRecoil = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
+    setBoardRecoil(true);
+    setTimeout(() => setBoardRecoil(false), 200);
+  }, [reduceMotion, screenShakeEnabled]);
+
   // Tactile feedback on mobile. Silently no-ops where unsupported.
   const vibrate = useCallback((pattern) => {
     if (!hapticsEnabled) return;
@@ -2757,6 +2766,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (!piece) return;
 
     playSFX("lock");
+    triggerShake2();
+    triggerBoardRecoil2();
+    vibrate(15);
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -2777,6 +2789,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             isSlime: piece.isSlime || false,
             isCatalystBomb: piece.isCatalystBomb || false,
             isWildcard: piece.isWildcard || false,
+            landedAt: Date.now(),
           };
         }
       });
@@ -2785,7 +2798,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard2(nextBoard);
     setActivePiece2(null);
     setGameState("arena_resolving");
-  }, []);
+  }, [triggerShake2, triggerBoardRecoil2, vibrate]);
 
   const moveDown2 = useCallback(() => {
     const { activePiece2: piece, board2: currentBoard, isPaused: paused } = stateRef.current;
@@ -2829,6 +2842,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     while (!checkCollision({ ...piece, y: y + 1 }, currentBoard)) y += 1;
     const droppedPiece = { ...piece, y };
     playSFX("drop");
+    triggerShake2();
+    triggerBoardRecoil2();
+    vibrate(20);
     setActivePiece2(droppedPiece);
 
     const nextBoard = currentBoard.map((row) => [...row]);
@@ -2850,6 +2866,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             isSlime: droppedPiece.isSlime || false,
             isCatalystBomb: droppedPiece.isCatalystBomb || false,
             isWildcard: droppedPiece.isWildcard || false,
+            landedAt: Date.now(),
           };
         }
       });
@@ -2857,7 +2874,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard2(nextBoard);
     setActivePiece2(null);
     setGameState("arena_resolving");
-  }, []);
+  }, [triggerShake2, triggerBoardRecoil2, vibrate]);
 
   const addFloatingText2 = useCallback((text, x = 4, y = 8) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -2871,6 +2888,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (reduceMotion || !screenShakeEnabled) return;
     setShake2(true);
     setTimeout(() => setShake2(false), 300);
+  }, [reduceMotion, screenShakeEnabled]);
+
+  const triggerBoardRecoil2 = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
+    setBoardRecoil2(true);
+    setTimeout(() => setBoardRecoil2(false), 200);
   }, [reduceMotion, screenShakeEnabled]);
 
   const handleArenaGameEnd = useCallback((winner) => {
@@ -3545,6 +3568,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (!piece) return;
 
     playSFX("lock");
+    triggerShake();
+    triggerBoardRecoil();
+    vibrate(15);
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -3565,6 +3591,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             isSlime: piece.isSlime || false,
             isCatalystBomb: piece.isCatalystBomb || false,
             isWildcard: piece.isWildcard || false,
+            landedAt: Date.now(),
           };
         }
       });
@@ -3573,7 +3600,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setGameState(stateRef.current.gameState === "arena_dropping" ? "arena_resolving" : "resolving");
-  }, []);
+  }, [triggerShake, triggerBoardRecoil, vibrate]);
 
   // -------------------------------------------------------------------------
   // Controls
@@ -3632,6 +3659,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
     const droppedPiece = { ...piece, y };
     playSFX("drop");
+    triggerShake();
+    triggerBoardRecoil();
+    vibrate(20);
     setActivePiece(droppedPiece);
 
     const nextBoard = currentBoard.map((row) => [...row]);
@@ -3653,6 +3683,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             isSlime: droppedPiece.isSlime || false,
             isCatalystBomb: droppedPiece.isCatalystBomb || false,
             isWildcard: droppedPiece.isWildcard || false,
+            landedAt: Date.now(),
           };
         }
       });
@@ -3660,7 +3691,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setGameState(state === "arena_dropping" ? "arena_resolving" : "resolving");
-  }, []);
+  }, [triggerShake, triggerBoardRecoil, vibrate]);
 
   const handleBoardTouchStart = (event) => {
     if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
@@ -3935,7 +3966,10 @@ Can you beat my score? Play ThinkFastBlast!`;
           for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
             if (afterClearBoard[y][x] === null) continue;
             if (writeY !== y) {
-              afterClearBoard[writeY][x] = afterClearBoard[y][x];
+              afterClearBoard[writeY][x] = {
+                ...afterClearBoard[y][x],
+                landedAt: Date.now()
+              };
               afterClearBoard[y][x] = null;
             }
             writeY -= 1;
@@ -4446,7 +4480,10 @@ Can you beat my score? Play ThinkFastBlast!`;
             for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
               if (afterClearBoard[y][x] === null) continue;
               if (writeY !== y) {
-                afterClearBoard[writeY][x] = afterClearBoard[y][x];
+                afterClearBoard[writeY][x] = {
+                  ...afterClearBoard[y][x],
+                  landedAt: Date.now()
+                };
                 afterClearBoard[y][x] = null;
               }
               writeY -= 1;
@@ -4487,7 +4524,10 @@ Can you beat my score? Play ThinkFastBlast!`;
             for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
               if (afterClearBoard[y][x] === null) continue;
               if (writeY !== y) {
-                afterClearBoard[writeY][x] = afterClearBoard[y][x];
+                afterClearBoard[writeY][x] = {
+                  ...afterClearBoard[y][x],
+                  landedAt: Date.now()
+                };
                 afterClearBoard[y][x] = null;
               }
               writeY -= 1;
@@ -5700,7 +5740,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -5720,6 +5760,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                         }
                         if (isExploding) {
                            cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
+                        } else if (cell && cell.landedAt && Date.now() - cell.landedAt < 300) {
+                           cellClass += " animate-block-settle";
                         }
                       }
 
@@ -5776,7 +5818,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil2 ? "animate-board-recoil2" : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {(() => {
                     const displayBoard2 = board2.map(row => [...row]);
@@ -5846,6 +5888,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                           }
                           if (isExploding) {
                             cellClass += " transition-all duration-[400ms] scale-150 opacity-0 z-10 blur-sm";
+                          } else if (cell && cell.landedAt && Date.now() - cell.landedAt < 300) {
+                            cellClass += " animate-block-settle";
                           }
                         }
 
@@ -6236,7 +6280,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -6269,6 +6313,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                       cellClass += ` block-detonating block-detonating-${blastEffect}`;
                     } else if (cell) {
                       cellClass += " transition-all duration-75 scale-100 opacity-100 rotate-0 shadow-[inset_0_0_10px_rgba(0,0,0,0.3)]";
+                      if (cell.landedAt && Date.now() - cell.landedAt < 300) {
+                        cellClass += " animate-block-settle";
+                      }
                     }
                   }
 
