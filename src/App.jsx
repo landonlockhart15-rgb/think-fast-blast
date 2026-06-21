@@ -1328,7 +1328,9 @@ function RunTelemetryPanel({
               ? "Wildcard"
               : isControllable
                 ? "Clean Block"
-                : "Stone";
+                : activePiece?.heavyHits === 3
+                  ? "Obsidian Block"
+                  : "Stone";
 
   const heatMeter = coolingRemaining > 0
     ? { label: "System Cooling", value: `${coolingRemaining} Blocks`, progress: Math.min(100, Math.round((coolingRemaining / 3) * 100)), tone: "blue" }
@@ -2246,6 +2248,9 @@ Can you beat my score? Play ThinkFastBlast!`;
     return undefined;
   }, [totalScore, correctStreak]);
 
+  const isFrenzyActive = correctStreak >= 5;
+  const isDesperationActive = board.slice(0, 5).some(row => row.some(cell => cell !== null));
+
   useEffect(() => {
     stateRef.current = {
       board,
@@ -2266,6 +2271,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       runMode,
       endlessLevel,
       speedWavePieces,
+      isFrenzyActive,
+      isDesperationActive,
       // Arena
       board2,
       activePiece2,
@@ -2278,7 +2285,48 @@ Can you beat my score? Play ThinkFastBlast!`;
       arenaMode,
       aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, isFrenzyActive, isDesperationActive, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+
+  // Dynamic Pressure Mutators - state change notifications
+  const prevFrenzyRef = useRef(false);
+  const prevDesperationRef = useRef(false);
+
+  useEffect(() => {
+    // Only trigger notifications if the game is active
+    if (gameState !== "dropping" && gameState !== "resolving" && gameState !== "quiz") {
+      prevFrenzyRef.current = isFrenzyActive;
+      prevDesperationRef.current = isDesperationActive;
+      return;
+    }
+
+    if (isFrenzyActive && !prevFrenzyRef.current) {
+      playSFX("thunder");
+      triggerFlash("blast");
+      vibrate([40, 40, 80]);
+      addFloatingText("🔥 FRENZY ACTIVE! ⚡", 5, 3);
+      pushToast({
+        kind: "info",
+        emoji: "⚡",
+        title: "Frenzy Mode!",
+        desc: "Streak 5+! Fall speed doubled and points are x2!"
+      });
+    }
+    prevFrenzyRef.current = isFrenzyActive;
+
+    if (isDesperationActive && !prevDesperationRef.current) {
+      playSFX("incorrect");
+      triggerFlash("danger");
+      vibrate([80, 80]);
+      addFloatingText("🚨 DESPERATION ACTIVE! 🪨", 5, 3);
+      pushToast({
+        kind: "info",
+        emoji: "🚨",
+        title: "Desperation Mode!",
+        desc: "Blocks near the top! Gravity slowed but wrong answers spawn heavier stone!"
+      });
+    }
+    prevDesperationRef.current = isDesperationActive;
+  }, [isFrenzyActive, isDesperationActive, gameState, pushToast, playSFX, triggerFlash, vibrate, addFloatingText]);
 
   useEffect(() => {
     saveProgress(maxUnlockedLevel);
@@ -3320,6 +3368,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     playSFX("incorrect");
     triggerFlash("danger");
 
+    const desperationActive = currentBoard.slice(0, 5).some(row => row.some(cell => cell !== null));
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
       row.forEach((value, x) => {
@@ -3329,10 +3378,10 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (boardY >= 0 && boardY < BOARD_HEIGHT) {
           nextBoard[boardY][boardX] = {
             color: "bg-zinc-800",
-            emoji: "🪨",
+            emoji: desperationActive ? "⛰️" : "🪨",
             isStone: true,
             isHeavyStone: true,
-            heavyHits: 2,
+            heavyHits: desperationActive ? 3 : 2,
           };
         }
       });
@@ -3739,6 +3788,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (stateRef.current.activeMutator === "dopamine_rush") {
       speed = Math.max(5, Math.round(speed / 2));
     }
+    if (isFrenzyActive) {
+      speed = Math.max(5, Math.round(speed / 2));
+    }
+    if (isDesperationActive) {
+      speed = Math.round(speed * 1.5);
+    }
     if (runMode === "endless" && speedWavePieces > 0) {
       speed = Math.max(5, Math.round(speed / 2));
     }
@@ -3750,7 +3805,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     }
     const timer = setInterval(moveDown, speed);
     return () => clearInterval(timer);
-  }, [gameState, isPaused, level, runMode, endlessLevel, speedWavePieces, moveDown, runConfig.difficulty.gravityMultiplier, heatLevel, coolingRemaining]);
+  }, [gameState, isPaused, level, runMode, endlessLevel, speedWavePieces, moveDown, runConfig.difficulty.gravityMultiplier, heatLevel, coolingRemaining, isFrenzyActive, isDesperationActive]);
 
   // -------------------------------------------------------------------------
   // Board resolver: blasts, lines, combos, gravity, win/loss
@@ -3979,7 +4034,9 @@ Can you beat my score? Play ThinkFastBlast!`;
         setBoard(afterClearBoard);
         setExplodingCells([]);
         const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
-        setTotalScore((prev) => prev + pointsEarned * (isDopamine ? 2 : 1));
+        const frenzyActive = stateRef.current.correctStreak >= 5;
+        const frenzyMultiplier = frenzyActive ? 2 : 1;
+        setTotalScore((prev) => prev + pointsEarned * (isDopamine ? 2 : 1) * frenzyMultiplier);
         const nextRunMetrics = {
           ...runMetrics,
           lines: runMetrics.lines + lineClearCount,
@@ -4018,7 +4075,8 @@ Can you beat my score? Play ThinkFastBlast!`;
         }
 
         if (pointsEarned > 0) {
-          addFloatingText(`+${pointsEarned}`, anchor.x, anchor.y);
+          const finalPoints = pointsEarned * (isDopamine ? 2 : 1) * (frenzyActive ? 2 : 1);
+          addFloatingText(`+${finalPoints}`, anchor.x, anchor.y);
         }
 
         if (didLineClear) unlockAchievement("line");
@@ -5081,7 +5139,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       });
       setMaxStreak((currentMax) => Math.max(currentMax, nextStreak));
       const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
-      setTotalScore((score) => score + POINTS.CORRECT_ANSWER * (isDopamine ? 2 : 1));
+      const frenzyActive = nextStreak >= 5;
+      const frenzyMultiplier = frenzyActive ? 2 : 1;
+      setTotalScore((score) => score + POINTS.CORRECT_ANSWER * (isDopamine ? 2 : 1) * frenzyMultiplier);
       setQuestionsAnsweredThisLevel((answered) => answered + 1);
 
       // Variable verbal reward: escalating praise, larger on milestone streaks.
@@ -5091,8 +5151,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       const elapsed = (Date.now() - questionStartTime) / 1000;
       let bonusText = "";
       if (elapsed <= runConfig.difficulty.quickWindowSeconds) {
-        setTotalScore((score) => score + 15 * (isDopamine ? 2 : 1));
-        bonusText = " PERFECT! Quick Bonus +15 Pts!";
+        setTotalScore((score) => score + 15 * (isDopamine ? 2 : 1) * frenzyMultiplier);
+        bonusText = frenzyActive ? " PERFECT! Quick Bonus +30 Pts!" : " PERFECT! Quick Bonus +15 Pts!";
         addFloatingText("PERFECT! ⚡", piece?.x || 5, piece?.y || 4);
         unlockAchievement("perfect");
       }
@@ -5138,13 +5198,14 @@ Can you beat my score? Play ThinkFastBlast!`;
       setFeedback(`Wrong! The answer was ${correctAnswer}. Heavy Stone block incoming!`);
 
       setIsControllable(false);
+      const desperationActive = stateRef.current.board.slice(0, 5).some(row => row.some(cell => cell !== null));
       const stonePiece = {
         ...piece,
         color: "bg-zinc-800",
-        emoji: "🪨",
+        emoji: desperationActive ? "⛰️" : "🪨",
         isStone: true,
         isHeavyStone: true,
-        heavyHits: 2,
+        heavyHits: desperationActive ? 3 : 2,
       };
 
       const isInverse = stateRef.current.activeMutator === "inverse_gravity";
@@ -6244,6 +6305,18 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
               )}
 
+              {isFrenzyActive && (
+                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-rose-500 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-white animate-pulse shadow-pink-500/30">
+                  ⚡ FRENZY ACTIVE: SPEED DOUBLED · 2x SCORE MULTIPLIER! ⚡
+                </div>
+              )}
+
+              {isDesperationActive && (
+                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-red-500 bg-gradient-to-r from-red-800 via-orange-900 to-amber-950 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-amber-200 animate-pulse shadow-red-500/40">
+                  ⚠️ DESPERATION ACTIVE: TIME SLOWED · OBSTACLES ARE HEAVIER 🪨
+                </div>
+              )}
+
               {coolingRemaining > 0 && (
                 <div className="game-board-width mt-2 p-2.5 rounded-xl border border-blue-500 bg-gradient-to-r from-blue-900 to-indigo-950 text-[11px] font-black tracking-wide uppercase text-center shadow text-blue-300 animate-pulse">
                   ❄️ COOLING ACTIVE: Gravity slowed · Heavy stones spawning · {coolingRemaining} blocks remaining
@@ -6280,7 +6353,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
