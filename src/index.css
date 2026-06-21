@@ -1898,6 +1898,54 @@ button {
   50% { filter: brightness(1.18); }
 }
 
+/* Desperation Mode - visual warning when blocks are near top */
+.desperation-active {
+  position: relative;
+  border-color: transparent !important;
+  box-shadow: 
+    0 0 25px rgba(239, 68, 68, 0.8), 
+    0 0 50px rgba(249, 115, 22, 0.6), 
+    inset 0 0 30px rgba(220, 38, 38, 0.45) !important;
+  animation: desperationPulse 0.6s ease-in-out infinite alternate;
+}
+
+.desperation-active::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 3px solid transparent;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ef4444, #f97316, #7f1d1d, #ef4444) border-box;
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 10;
+  animation: desperationBorder 1.5s linear infinite;
+  filter: drop-shadow(0 0 10px #ef4444);
+}
+
+@keyframes desperationPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.6), inset 0 0 20px rgba(220, 38, 38, 0.3);
+  }
+  100% {
+    transform: scale(1.015);
+    box-shadow: 0 0 35px rgba(239, 68, 68, 0.9), inset 0 0 35px rgba(220, 38, 38, 0.6);
+  }
+}
+
+@keyframes desperationBorder {
+  0% {
+    background-position: 0% 0%;
+  }
+  100% {
+    background-position: 200% 0%;
+  }
+}
+
 /* Fever Mode - visual overdrive at x5+ streak */
 .fever-active {
   position: relative;

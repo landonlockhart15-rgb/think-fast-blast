@@ -201,4 +201,49 @@ test("clearBoardCells ignores empty cells and out-of-bounds clear requests", () 
   assert.equal(nextBoard[5][5], null);
 });
 
+test("clearBoardCells requires three separate clear events to remove a desperation stone", () => {
+  const board = createEmptyBoard();
+  const desperationStone = {
+    color: "bg-zinc-800",
+    isStone: true,
+    isHeavyStone: true,
+    heavyHits: 3,
+    emoji: "⛰️",
+  };
+  board[10][5] = desperationStone;
 
+  let nextBoard = clearBoardCells(board, [{ y: 10, x: 5 }]);
+  assert.ok(nextBoard[10][5]);
+  assert.equal(nextBoard[10][5].heavyHits, 2);
+  assert.equal(nextBoard[10][5].emoji, "🧱");
+  assert.deepEqual(board[10][5], desperationStone);
+
+  nextBoard = clearBoardCells(nextBoard, [{ y: 10, x: 5 }]);
+  assert.ok(nextBoard[10][5]);
+  assert.equal(nextBoard[10][5].heavyHits, 1);
+  assert.equal(nextBoard[10][5].emoji, "🧱");
+
+  nextBoard = clearBoardCells(nextBoard, [{ y: 10, x: 5 }]);
+  assert.equal(nextBoard[10][5], null);
+});
+
+test("clearBoardCells counts duplicate desperation stone coordinates once per clear event", () => {
+  const board = createEmptyBoard();
+  board[8][3] = {
+    color: "bg-zinc-800",
+    isStone: true,
+    isHeavyStone: true,
+    heavyHits: 3,
+    emoji: "⛰️",
+  };
+
+  const nextBoard = clearBoardCells(board, [
+    { y: 8, x: 3 },
+    { y: 8, x: 3 },
+    { y: 8, x: 3 },
+  ]);
+
+  assert.ok(nextBoard[8][3]);
+  assert.equal(nextBoard[8][3].heavyHits, 2);
+  assert.equal(nextBoard[8][3].emoji, "🧱");
+});
