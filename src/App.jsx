@@ -2761,6 +2761,18 @@ Can you beat my score? Play ThinkFastBlast!`;
   // -------------------------------------------------------------------------
   // Arena VS Mode Side-by-Side Callbacks & Loops
   // -------------------------------------------------------------------------
+  const triggerShake2 = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
+    setShake2(true);
+    setTimeout(() => setShake2(false), 300);
+  }, [reduceMotion, screenShakeEnabled]);
+
+  const triggerBoardRecoil2 = useCallback(() => {
+    if (reduceMotion || !screenShakeEnabled) return;
+    setBoardRecoil2(true);
+    setTimeout(() => setBoardRecoil2(false), 200);
+  }, [reduceMotion, screenShakeEnabled]);
+
   const lockPiece2 = useCallback(() => {
     const { activePiece2: piece, board2: currentBoard } = stateRef.current;
     if (!piece) return;
@@ -2883,18 +2895,6 @@ Can you beat my score? Play ThinkFastBlast!`;
       setFloatingTexts2((prev) => prev.filter((t) => t.id !== id));
     }, 900);
   }, []);
-
-  const triggerShake2 = useCallback(() => {
-    if (reduceMotion || !screenShakeEnabled) return;
-    setShake2(true);
-    setTimeout(() => setShake2(false), 300);
-  }, [reduceMotion, screenShakeEnabled]);
-
-  const triggerBoardRecoil2 = useCallback(() => {
-    if (reduceMotion || !screenShakeEnabled) return;
-    setBoardRecoil2(true);
-    setTimeout(() => setBoardRecoil2(false), 200);
-  }, [reduceMotion, screenShakeEnabled]);
 
   const handleArenaGameEnd = useCallback((winner) => {
     setIsPaused(false);
