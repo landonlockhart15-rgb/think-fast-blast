@@ -20,7 +20,9 @@
     "android:apk": "npm run android:sync && cd android && gradlew assembleDebug",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node --test && npm run smoke",
+    "test:unit": "node --test",
+    "smoke": "vite build && node scripts/smoke.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.1",
