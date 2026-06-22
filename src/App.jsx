@@ -2476,7 +2476,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Tactile feedback on mobile. Silently no-ops where unsupported.
   const vibrate = useCallback((pattern) => {
-    if (!hapticsEnabled) return;
+    if (!hapticsEnabled || reduceMotion) return;
     try {
       if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
         navigator.vibrate(pattern);
@@ -2484,7 +2484,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     } catch {
       // Vibration can be blocked by browser policy; ignore.
     }
-  }, [hapticsEnabled]);
+  }, [hapticsEnabled, reduceMotion]);
 
   // Transient pop-up notifications (achievements, records). Auto-dismiss.
   const pushToast = useCallback((toast) => {

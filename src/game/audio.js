@@ -350,7 +350,6 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs,
 export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game", fever = false) => {
   if (!audioEnabled) return;
   stopArpeggiator();
-  if (!audioCtx) return;
   initAudio();
   if (!audioCtx) return;
 
