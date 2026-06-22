@@ -4051,7 +4051,13 @@ Can you beat my score? Play ThinkFastBlast!`;
         if (nextRunMetrics.lines + nextRunMetrics.matches >= 4) unlockAchievement("board_buster");
         if (nextRunMetrics.fruits >= 3) unlockAchievement("fruit_salad");
         if (nextRunMetrics.specials >= 3) unlockAchievement("power_trip");
-        vibrate(hasTnt || hasDrill || hasLightning ? [30, 20, 70] : 22);
+        const comboFeedbackLevel = Math.min(stateRef.current.correctStreak || 0, 8);
+        const comboHapticPattern = comboFeedbackLevel >= 5
+          ? [22, 28, 42]
+          : comboFeedbackLevel >= 3
+            ? [18, 24, 28]
+            : 22;
+        vibrate(hasTnt || hasDrill || hasLightning ? [30, 20, 70] : comboHapticPattern);
 
         // Schedule and trigger floating texts asynchronously
         if (hasTnt) {
@@ -4073,7 +4079,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           playSFX("fruit_apple");
           addFloatingText("COLOR CORE! 🍎", anchor.x, anchor.y - 1);
         } else {
-          playSFX("match", 0);
+          playSFX("match", comboFeedbackLevel);
         }
 
         if (pointsEarned > 0) {
