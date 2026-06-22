@@ -27,7 +27,10 @@ const loadVolumeSettings = () => {
   }
 };
 
-const getAudioContext = () => window.AudioContext || window.webkitAudioContext;
+const getAudioContext = () => {
+  const scope = typeof window !== "undefined" ? window : globalThis;
+  return scope.AudioContext || scope.webkitAudioContext || null;
+};
 
 const connectNodeChain = (...nodes) => {
   for (let i = 0; i < nodes.length - 1; i += 1) {
@@ -38,6 +41,7 @@ const connectNodeChain = (...nodes) => {
 const ensureGraph = () => {
   if (!audioCtx) {
     const AudioContext = getAudioContext();
+    if (!AudioContext) return null;
     audioCtx = new AudioContext();
     masterGain = audioCtx.createGain();
     musicGain = audioCtx.createGain();
