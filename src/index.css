@@ -1672,6 +1672,25 @@ button {
   border: 2px solid #f97316 !important;
 }
 
+@keyframes pulseGlowRow {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(6, 182, 212, 0.7), 0 0 6px rgba(6, 182, 212, 0.4); filter: drop-shadow(0 0 2px rgba(6, 182, 212, 0.5)); }
+  50% { box-shadow: inset 0 0 16px rgba(6, 182, 212, 1), 0 0 12px rgba(6, 182, 212, 0.8); filter: drop-shadow(0 0 8px rgba(6, 182, 212, 0.9)); }
+}
+.animate-glow-row {
+  animation: pulseGlowRow 1s ease-in-out infinite;
+  border: 2px solid #06b6d4 !important;
+}
+
+@keyframes pulseGlowArea {
+  0%, 100% { box-shadow: inset 0 0 8px rgba(217, 70, 239, 0.7), 0 0 6px rgba(217, 70, 239, 0.4); filter: drop-shadow(0 0 2px rgba(217, 70, 239, 0.5)); }
+  50% { box-shadow: inset 0 0 16px rgba(217, 70, 239, 1), 0 0 12px rgba(217, 70, 239, 0.8); filter: drop-shadow(0 0 8px rgba(217, 70, 239, 0.9)); }
+}
+.animate-glow-area {
+  animation: pulseGlowArea 1s ease-in-out infinite;
+  border: 2px solid #d946ef !important;
+}
+
+
 @keyframes pulseGlowLava {
   0%, 100% { box-shadow: inset 0 0 10px rgba(239, 68, 68, 0.8), 0 0 8px rgba(249, 115, 22, 0.6); filter: drop-shadow(0 0 3px rgba(239, 68, 68, 0.7)); }
   50% { box-shadow: inset 0 0 20px rgba(239, 68, 68, 1), 0 0 16px rgba(249, 115, 22, 0.9); filter: drop-shadow(0 0 10px rgba(249, 115, 22, 1)); }

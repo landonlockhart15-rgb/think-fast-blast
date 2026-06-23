@@ -26,3 +26,19 @@ export const getStreakPowerType = (streak) => {
 };
 
 export const isSpecialStreak = (streak) => getStreakPowerType(streak) !== null;
+
+export const getEvolvedStreakPowerType = (streak) => {
+  if (streak <= 0 || streak % 5 !== 0) {
+    return null;
+  }
+  if (streak % 4 === 0) {
+    return null;
+  }
+
+  const milestone = streak / 5;
+  if (milestone % 2 === 1) return "row_clear";
+  return "area_clear";
+};
+
+export const isEvolvedStreak = (streak) => getEvolvedStreakPowerType(streak) !== null;
+

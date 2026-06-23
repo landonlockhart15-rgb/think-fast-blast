@@ -10,6 +10,8 @@ import {
   findConnectedColorMatches,
   findFruitEffectCells,
   findFullRows,
+  findRowClearCells,
+  findArea2x2ClearCells,
 } from "./board.js";
 
 test("checkCollision treats the board floor as a collision without reading past the board", () => {
@@ -246,4 +248,34 @@ test("clearBoardCells counts duplicate desperation stone coordinates once per cl
   assert.ok(nextBoard[8][3]);
   assert.equal(nextBoard[8][3].heavyHits, 2);
   assert.equal(nextBoard[8][3].emoji, "🧱");
+});
+
+test("findRowClearCells finds all occupied non-ghost blocks in a row", () => {
+  const board = createEmptyBoard();
+  board[10][2] = { color: "bg-red-500" };
+  board[10][5] = { color: "bg-blue-500", isGhost: true };
+  board[10][7] = { color: "bg-green-500" };
+
+  const cells = findRowClearCells(board, 10);
+  assert.deepEqual(cells, [
+    { y: 10, x: 2 },
+    { y: 10, x: 7 }
+  ]);
+});
+
+test("findArea2x2ClearCells finds occupied non-ghost blocks in a 2x2 bounding box", () => {
+  const board = createEmptyBoard();
+  board[9][1] = { color: "bg-red-500" };
+  board[9][2] = { color: "bg-blue-500" };
+  board[10][1] = { color: "bg-green-500", isGhost: true };
+  board[10][2] = { color: "bg-yellow-400" };
+  board[11][2] = { color: "bg-cyan-500" }; // out of 2x2 range
+
+  // centerY = 10, centerX = 2 -> startY = 9, startX = 1
+  const cells = findArea2x2ClearCells(board, 10, 2);
+  assert.deepEqual(cells, [
+    { y: 9, x: 1 },
+    { y: 9, x: 2 },
+    { y: 10, x: 2 }
+  ]);
 });

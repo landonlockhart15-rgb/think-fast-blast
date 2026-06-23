@@ -213,3 +213,26 @@ export const clearBoardCells = (currentBoard, cellsToClear) => {
   return nextBoard;
 };
 
+export const findRowClearCells = (currentBoard, centerY) => {
+  const cells = [];
+  for (let x = 0; x < BOARD_WIDTH; x += 1) {
+    if (currentBoard[centerY]?.[x] !== null && !currentBoard[centerY]?.[x]?.isGhost) {
+      cells.push({ y: centerY, x });
+    }
+  }
+  return cells;
+};
+
+export const findArea2x2ClearCells = (currentBoard, centerY, centerX) => {
+  const cells = [];
+  const startY = centerY === 0 ? 0 : centerY - 1;
+  const startX = centerX === 0 ? 0 : centerX - 1;
+  for (let y = startY; y <= startY + 1 && y < BOARD_HEIGHT; y += 1) {
+    for (let x = startX; x <= startX + 1 && x < BOARD_WIDTH; x += 1) {
+      if (currentBoard[y]?.[x] !== null && !currentBoard[y]?.[x]?.isGhost) {
+        cells.push({ y, x });
+      }
+    }
+  }
+  return cells;
+};
