@@ -38,6 +38,10 @@ that feels earned. Bold, playful features that make someone say "oh that's cool.
 - Build a second parallel system when one exists (one score store, one audio
   engine, one progression model). Extend, don't fork.
 - Ship "educational" features that sacrifice fun. Fun is the delivery mechanism.
+- Burn paid/subscription model sessions building this when capable free/local
+  models can do the work. It's a game — let free models write the bulk, and save
+  paid models for review or the genuinely hard bits. Token frugality is a
+  standing priority across every project, this one included.
 
 ## The vibe
 Arcade cabinet energy. If a change wouldn't make the game more fun, more juicy,
