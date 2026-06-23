@@ -1104,7 +1104,7 @@ function BrainSparksCanvas() {
 }
 
 // A Canvas component for drawing block explosions and sparks
-function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "match", activePiece }) {
+function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "match", activePiece, lastPlacedPiece }) {
   const canvasRef = useRef(null);
   const particlesRef = useRef([]);
   const activePieceRef = useRef(activePiece);
@@ -1171,31 +1171,147 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
     });
   }, [explodingCells, effectType]);
 
+  const prevPlacedTimestampRef = useRef(0);
+  useEffect(() => {
+    if (!lastPlacedPiece || lastPlacedPiece.timestamp === prevPlacedTimestampRef.current) return;
+    prevPlacedTimestampRef.current = lastPlacedPiece.timestamp;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const cellW = width / 10;
+    const cellH = height / 16;
+
+    const hexMap = {
+      "bg-cyan-500": "#06b6d4",
+      "bg-yellow-400": "#facc15",
+      "bg-purple-500": "#a855f7",
+      "bg-orange-500": "#f97316",
+      "bg-blue-500": "#3b82f6",
+      "bg-green-500": "#22c55e",
+      "bg-red-500": "#ef4444",
+      "bg-zinc-800": "#27272a",
+      "bg-slate-500": "#64748b",
+    };
+    const colorHex = hexMap[lastPlacedPiece.color] || "#a855f7";
+    const isMobile = isMobileDevice();
+    const count = isMobile ? 3 : 6;
+
+    lastPlacedPiece.shape.forEach((row, ry) => {
+      row.forEach((val, rx) => {
+        if (val) {
+          const bx = lastPlacedPiece.x + rx;
+          const by = lastPlacedPiece.y + ry;
+          if (bx >= 0 && bx < 10 && by >= 0 && by < 16) {
+            const cx = (bx + 0.5) * cellW;
+            const cy = (by + 1.0) * cellH;
+
+            for (let i = 0; i < count; i++) {
+              const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.2;
+              const speed = Math.random() * 2.5 + 1.5;
+              particlesRef.current.push({
+                x: cx,
+                y: cy,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                color: colorHex,
+                size: Math.random() * 3 + 1.5,
+                alpha: 1.0,
+                decay: Math.random() * 0.04 + 0.02,
+                gravity: 0.15,
+                kind: "debris",
+                rotation: Math.random() * Math.PI,
+                spin: (Math.random() - 0.5) * 0.2,
+              });
+            }
+          }
+        }
+      });
+    });
+  }, [lastPlacedPiece]);
+
   const prevStreakRef = useRef(correctStreak);
   useEffect(() => {
-    if (correctStreak > prevStreakRef.current && correctStreak >= 3) {
+    if (correctStreak > prevStreakRef.current) {
       const canvas = canvasRef.current;
-      if (!canvas) return;
+      if (canvas) {
+        const width = canvas.width;
+        const height = canvas.height;
+        const cellW = width / 10;
+        const cellH = height / 16;
+        
+        let cx = width / 2;
+        let cy = height / 4;
+        const p = activePieceRef.current;
+        if (p) {
+          let minX = 10, maxX = 0, minY = 16, maxY = 0;
+          p.shape.forEach((row, ry) => {
+            row.forEach((val, rx) => {
+              if (val) {
+                const bx = p.x + rx;
+                const by = p.y + ry;
+                if (bx < minX) minX = bx;
+                if (bx > maxX) maxX = bx;
+                if (by < minY) minY = by;
+                if (by > maxY) maxY = by;
+              }
+            });
+          });
+          if (minX <= maxX && minY <= maxY) {
+            cx = ((minX + maxX + 1) / 2) * cellW;
+            cy = ((minY + maxY + 1) / 2) * cellH;
+          }
+        }
 
-      const width = canvas.width;
-      const height = canvas.height;
-      const isMobile = isMobileDevice();
-      const count = isMobile ? 12 : 25;
-      for (let i = 0; i < count; i++) {
-        particlesRef.current.push({
-          x: Math.random() * width,
-          y: height,
-          vx: (Math.random() - 0.5) * 3,
-          vy: -Math.random() * 4 - 2,
-          color: "#fbbf24",
-          size: Math.random() * 4 + 2,
-          alpha: 1.0,
-          decay: Math.random() * 0.03 + 0.015,
-          gravity: 0.03,
-          kind: "spark",
-          rotation: 0,
-          spin: 0,
-        });
+        const colors = ["#fbbf24", "#38bdf8", "#c084fc", "#34d399", "#f43f5e", "#ffffff"];
+        const isMobile = isMobileDevice();
+        const burstCount = isMobile ? 12 : 25;
+        for (let i = 0; i < burstCount; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 4 + 2;
+          particlesRef.current.push({
+            x: cx,
+            y: cy,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 0.5,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: Math.random() * 4 + 2,
+            alpha: 1.0,
+            decay: Math.random() * 0.035 + 0.015,
+            gravity: 0.05,
+            kind: "spark",
+            rotation: Math.random() * Math.PI,
+            spin: (Math.random() - 0.5) * 0.1,
+          });
+        }
+      }
+
+      if (correctStreak >= 3) {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const width = canvas.width;
+          const height = canvas.height;
+          const isMobile = isMobileDevice();
+          const count = isMobile ? 12 : 25;
+          for (let i = 0; i < count; i++) {
+            particlesRef.current.push({
+              x: Math.random() * width,
+              y: height,
+              vx: (Math.random() - 0.5) * 3,
+              vy: -Math.random() * 4 - 2,
+              color: "#fbbf24",
+              size: Math.random() * 4 + 2,
+              alpha: 1.0,
+              decay: Math.random() * 0.03 + 0.015,
+              gravity: 0.03,
+              kind: "spark",
+              rotation: 0,
+              spin: 0,
+            });
+          }
+        }
       }
     }
     prevStreakRef.current = correctStreak;
@@ -1831,6 +1947,8 @@ export default function App() {
   const [floatingTexts2, setFloatingTexts2] = useState([]);
   const [shake2, setShake2] = useState(false);
   const [boardRecoil2, setBoardRecoil2] = useState(false);
+  const [boardThump2, setBoardThump2] = useState(false);
+  const [lastPlacedPiece2, setLastPlacedPiece2] = useState(null);
   const [aiQuip, setAiQuip] = useState(AI_THINKING_LINES[0]);
   const [aiThinkingStage, setAiThinkingStage] = useState("reading");
   const [aiRaceMetrics, setAiRaceMetrics] = useState(createAiRaceMetrics);
@@ -2131,6 +2249,8 @@ Can you beat my score? Play ThinkFastBlast!`;
   const [floatingTexts, setFloatingTexts] = useState([]);
   const [shake, setShake] = useState(false);
   const [boardRecoil, setBoardRecoil] = useState(false);
+  const [boardThump, setBoardThump] = useState(false);
+  const [lastPlacedPiece, setLastPlacedPiece] = useState(null);
   const [windForce, setWindForce] = useState(0);
   const [questionsSinceLastRise, setQuestionsSinceLastRise] = useState(0);
   const [recoveryTimer, setRecoveryTimer] = useState(4);
@@ -2473,6 +2593,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoardRecoil(true);
     setTimeout(() => setBoardRecoil(false), 200);
   }, [reduceMotion, screenShakeEnabled]);
+
+  const triggerBoardThump = useCallback(() => {
+    if (reduceMotion) return;
+    setBoardThump(true);
+    setTimeout(() => setBoardThump(false), 350);
+  }, [reduceMotion]);
 
   // Tactile feedback on mobile. Silently no-ops where unsupported.
   const vibrate = useCallback((pattern) => {
@@ -2823,6 +2949,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     setTimeout(() => setBoardRecoil2(false), 200);
   }, [reduceMotion, screenShakeEnabled]);
 
+  const triggerBoardThump2 = useCallback(() => {
+    if (reduceMotion) return;
+    setBoardThump2(true);
+    setTimeout(() => setBoardThump2(false), 350);
+  }, [reduceMotion]);
+
   const lockPiece2 = useCallback(() => {
     const { activePiece2: piece, board2: currentBoard } = stateRef.current;
     if (!piece) return;
@@ -2831,6 +2963,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     triggerShake2();
     triggerBoardRecoil2();
     vibrate(15);
+    setLastPlacedPiece2({
+      x: piece.x,
+      y: piece.y,
+      shape: piece.shape,
+      color: piece.color,
+      timestamp: Date.now()
+    });
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -2860,7 +2999,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard2(nextBoard);
     setActivePiece2(null);
     setGameState("arena_resolving");
-  }, [triggerShake2, triggerBoardRecoil2, vibrate]);
+  }, [triggerShake2, triggerBoardRecoil2, vibrate, setLastPlacedPiece2]);
 
   const moveDown2 = useCallback(() => {
     const { activePiece2: piece, board2: currentBoard, isPaused: paused } = stateRef.current;
@@ -2908,6 +3047,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     triggerBoardRecoil2();
     vibrate(20);
     setActivePiece2(droppedPiece);
+    setLastPlacedPiece2({
+      x: droppedPiece.x,
+      y: droppedPiece.y,
+      shape: droppedPiece.shape,
+      color: droppedPiece.color,
+      timestamp: Date.now()
+    });
 
     const nextBoard = currentBoard.map((row) => [...row]);
     droppedPiece.shape.forEach((row, shapeY) => {
@@ -2936,7 +3082,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard2(nextBoard);
     setActivePiece2(null);
     setGameState("arena_resolving");
-  }, [triggerShake2, triggerBoardRecoil2, vibrate]);
+  }, [triggerShake2, triggerBoardRecoil2, vibrate, setLastPlacedPiece2]);
 
   const addFloatingText2 = useCallback((text, x = 4, y = 8) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -3630,6 +3776,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     triggerShake();
     triggerBoardRecoil();
     vibrate(15);
+    setLastPlacedPiece({
+      x: piece.x,
+      y: piece.y,
+      shape: piece.shape,
+      color: piece.color,
+      timestamp: Date.now()
+    });
 
     const nextBoard = currentBoard.map((row) => [...row]);
     piece.shape.forEach((row, y) => {
@@ -3659,7 +3812,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setGameState(stateRef.current.gameState === "arena_dropping" ? "arena_resolving" : "resolving");
-  }, [triggerShake, triggerBoardRecoil, vibrate]);
+  }, [triggerShake, triggerBoardRecoil, vibrate, setLastPlacedPiece]);
 
   // -------------------------------------------------------------------------
   // Controls
@@ -3722,6 +3875,13 @@ Can you beat my score? Play ThinkFastBlast!`;
     triggerBoardRecoil();
     vibrate(20);
     setActivePiece(droppedPiece);
+    setLastPlacedPiece({
+      x: droppedPiece.x,
+      y: droppedPiece.y,
+      shape: droppedPiece.shape,
+      color: droppedPiece.color,
+      timestamp: Date.now()
+    });
 
     const nextBoard = currentBoard.map((row) => [...row]);
     droppedPiece.shape.forEach((row, shapeY) => {
@@ -3750,7 +3910,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setGameState(state === "arena_dropping" ? "arena_resolving" : "resolving");
-  }, [triggerShake, triggerBoardRecoil, vibrate]);
+  }, [triggerShake, triggerBoardRecoil, vibrate, setLastPlacedPiece]);
 
   const handleBoardTouchStart = (event) => {
     if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
@@ -4015,6 +4175,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     : "match";
 
       queueMicrotask(() => triggerShake());
+      queueMicrotask(() => triggerBoardThump());
       queueMicrotask(() => setBlastEffect(nextBlastEffect));
       queueMicrotask(() => setExplodingCells(cellsToClear));
       queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning ? "blast" : "score"));
@@ -4533,6 +4694,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       if (hasClears1) {
         queueMicrotask(() => setExplodingCells(cellsToClear1));
         queueMicrotask(() => triggerShake());
+        queueMicrotask(() => triggerBoardThump());
         queueMicrotask(() => triggerFlash(hasTnt1 || hasDrill1 || hasLightning1 ? "blast" : "score"));
         if (hasLightning1) {
           queueMicrotask(() => triggerElectrify());
@@ -4542,6 +4704,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       if (hasClears2) {
         queueMicrotask(() => setExplodingCells2(cellsToClear2));
         queueMicrotask(() => triggerShake2());
+        queueMicrotask(() => triggerBoardThump2());
       }
 
       const timer = setTimeout(() => {
@@ -5242,6 +5405,13 @@ Can you beat my score? Play ThinkFastBlast!`;
         }
       }
       const lockedStonePiece = { ...stonePiece, y };
+      setLastPlacedPiece({
+        x: lockedStonePiece.x,
+        y: lockedStonePiece.y,
+        shape: lockedStonePiece.shape,
+        color: lockedStonePiece.color,
+        timestamp: Date.now()
+      });
 
       const nextBoard = currentBoard.map((row) => [...row]);
       lockedStonePiece.shape.forEach((row, shapeY) => {
@@ -5290,7 +5460,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil, setLastPlacedPiece]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
@@ -5822,7 +5992,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -5860,6 +6030,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     correctStreak={correctStreak}
                     effectType="match"
                     activePiece={activePiece}
+                    lastPlacedPiece={lastPlacedPiece}
                   />
 
                   {floatingTexts.map((t) => (
@@ -5900,7 +6071,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 || misses2 >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil2 ? "animate-board-recoil2" : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 || misses2 >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil2 ? "animate-board-recoil2" : ""} ${boardThump2 ? "animate-board-thump2" : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {(() => {
                     const displayBoard2 = board2.map(row => [...row]);
@@ -5989,6 +6160,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                     correctStreak={correctStreak2}
                     effectType="match"
                     activePiece={activePiece2}
+                    lastPlacedPiece={lastPlacedPiece2}
                   />
 
                   {floatingTexts2.map((t) => (
@@ -6374,7 +6546,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
@@ -6442,6 +6614,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 correctStreak={correctStreak}
                 effectType={blastEffect}
                 activePiece={activePiece}
+                lastPlacedPiece={lastPlacedPiece}
               />
 
               {/* Floating Combo / Points Feedback Popups */}
