@@ -3153,6 +3153,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       if (correct) {
         setP1Answered("correct");
         playSFX("correct", correctStreak + 1);
+        triggerFlash("success");
+        vibrate(correctStreak + 1 >= 5 ? [18, 40, 18] : 16);
         setCorrectStreak(prev => prev + 1);
         setTotalScore(prev => prev + POINTS.CORRECT_ANSWER);
         setIsControllable(true);
@@ -3179,7 +3181,11 @@ Can you beat my score? Play ThinkFastBlast!`;
         setGameState("arena_dropping");
       } else {
         setP1Answered("wrong");
-        playSFX("incorrect");
+        playSFX("incorrect", 1);
+        triggerFlash("danger");
+        vibrate([60, 30, 90]);
+        triggerShake();
+        triggerBoardRecoil();
         setCorrectStreak(0);
         setIsControllable(false);
         if (activePiece) {
@@ -3231,7 +3237,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           setAiQuip(randomItem(AI_MISS_LINES));
         }
         setP2Answered("wrong");
-        playSFX("incorrect");
+        playSFX("incorrect", 1);
         setCorrectStreak2(0);
         setIsControllable2(false);
         if (activePiece2) {
@@ -3243,13 +3249,15 @@ Can you beat my score? Play ThinkFastBlast!`;
           }));
         }
         addFloatingText2("WRONG! 🧱", activePiece2?.x || 5, activePiece2?.y || 2);
+        triggerShake2();
+        triggerBoardRecoil2();
 
         if (p1Answered !== null) {
           setGameState("arena_dropping");
         }
       }
     }
-  }, [shuffledQuestions, p1Answered, p2Answered, correctStreak, correctStreak2, activePiece, activePiece2, addFloatingText, addFloatingText2]);
+  }, [shuffledQuestions, p1Answered, p2Answered, correctStreak, correctStreak2, activePiece, activePiece2, addFloatingText, addFloatingText2, vibrate, triggerFlash, triggerShake, triggerBoardRecoil, triggerShake2, triggerBoardRecoil2]);
   useEffect(() => {
     handleArenaAnswerRef.current = handleArenaAnswer;
   }, [handleArenaAnswer]);
@@ -4696,8 +4704,9 @@ Can you beat my score? Play ThinkFastBlast!`;
       const scaleType = isMajor ? "major" : "minor";
 
       const isFever = correctStreak >= 5 || (arenaMode && correctStreak2 >= 5);
+      const activeStreak = arenaMode ? Math.max(correctStreak, correctStreak2) : correctStreak;
 
-      startArpeggiator(bpm, scaleType, intensity, "game", isFever);
+      startArpeggiator(bpm, scaleType, intensity, "game", isFever, activeStreak);
     } else {
       stopArpeggiator();
     }
@@ -5193,7 +5202,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       setFeedback(`Correct!${bonusText} You have control.`);
       setGameState("dropping");
     } else {
-      playSFX("incorrect");
+      const nextMisses = currentMisses + 1;
+      playSFX("incorrect", nextMisses);
       triggerFlash("danger");
       vibrate([60, 30, 90]);
       // Heavy stone slams straight onto the board here (instant lock, bypassing
@@ -5204,7 +5214,6 @@ Can you beat my score? Play ThinkFastBlast!`;
       setHeatLevel(0);
       setCoolingRemaining(3);
       const correctAnswer = question.options[question.answer];
-      const nextMisses = currentMisses + 1;
       setMisses(nextMisses);
       setLastCorrectAnswer(correctAnswer);
       setFeedback(`Wrong! The answer was ${correctAnswer}. Heavy Stone block incoming!`);
@@ -5813,7 +5822,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -5891,7 +5900,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil2 ? "animate-board-recoil2" : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake2 ? (correctStreak2 >= 5 || misses2 >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil2 ? "animate-board-recoil2" : ""} ${correctStreak2 >= 5 ? "fever-active" : correctStreak2 >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {(() => {
                     const displayBoard2 = board2.map(row => [...row]);
@@ -6365,7 +6374,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
