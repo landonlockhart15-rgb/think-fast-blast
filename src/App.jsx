@@ -21,6 +21,8 @@ import {
   findFruitEffectCells,
   rotateShapeClockwise,
   shuffleArray,
+  findRowClearCells,
+  findArea2x2ClearCells,
 } from "./game/board";
 import {
   playSFX,
@@ -46,7 +48,7 @@ import {
 import { getArenaAiTurn } from "./game/arenaAi";
 import { advanceAiRace, createAiRaceMetrics } from "./game/aiRace";
 import { applyBoardPower, BOARD_POWERS } from "./game/boardPowers";
-import { getStreakPowerType, SPECIAL_BLOCK_RATES } from "./game/specialBalance";
+import { getStreakPowerType, getEvolvedStreakPowerType, isEvolvedStreak, SPECIAL_BLOCK_RATES } from "./game/specialBalance";
 import {
   createProfile,
   deleteProfile,
@@ -1436,12 +1438,16 @@ function RunTelemetryPanel({
       ? "Drill"
       : activePiece?.isLightning
         ? "Lightning"
-        : activePiece?.isSlime
-          ? "Slime"
-          : activePiece?.isCatalystBomb
-            ? "Catalyst"
-            : activePiece?.isWildcard
-              ? "Wildcard"
+        : activePiece?.isRowClear
+          ? "Row Clear"
+          : activePiece?.isArea2x2Clear
+            ? "2x2 Area Clear"
+            : activePiece?.isSlime
+              ? "Slime"
+              : activePiece?.isCatalystBomb
+                ? "Catalyst"
+                : activePiece?.isWildcard
+                  ? "Wildcard"
               : isControllable
                 ? "Clean Block"
                 : activePiece?.heavyHits === 3
@@ -2766,6 +2772,30 @@ Can you beat my score? Play ThinkFastBlast!`;
     return piece;
   };
 
+  // Helper to generate an evolved Power Block (Row/Area Clear)
+  const makePowerBlock = (piece, type, streak) => {
+    if (type === "row_clear") {
+      return {
+        ...piece,
+        isRowClear: true,
+        color: "bg-cyan-500 animate-glow-row shadow-[0_0_15px_rgba(6,182,212,0.8)]",
+        emoji: "↔️",
+        shape: [[1]],
+      };
+    }
+    if (type === "area_clear") {
+      return {
+        ...piece,
+        isArea2x2Clear: true,
+        color: "bg-fuchsia-500 animate-glow-area shadow-[0_0_15px_rgba(217,70,239,0.8)]",
+        emoji: "🔲",
+        shape: [[1]],
+      };
+    }
+    return piece;
+  };
+
+
   // Memoized game end handler to save stats, high scores, glitches and trigger audio
   const handleGameEnd = useCallback((isWin, finalScore) => {
     window.clearTimeout(aiRaceTimerRef.current);
@@ -2987,6 +3017,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             isTNT: piece.isTNT || false,
             isDrill: piece.isDrill || false,
             isLightning: piece.isLightning || false,
+            isRowClear: piece.isRowClear || false,
+            isArea2x2Clear: piece.isArea2x2Clear || false,
             isSlime: piece.isSlime || false,
             isCatalystBomb: piece.isCatalystBomb || false,
             isWildcard: piece.isWildcard || false,
@@ -3071,6 +3103,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             isTNT: droppedPiece.isTNT || false,
             isDrill: droppedPiece.isDrill || false,
             isLightning: droppedPiece.isLightning || false,
+            isRowClear: droppedPiece.isRowClear || false,
+            isArea2x2Clear: droppedPiece.isArea2x2Clear || false,
             isSlime: droppedPiece.isSlime || false,
             isCatalystBomb: droppedPiece.isCatalystBomb || false,
             isWildcard: droppedPiece.isWildcard || false,
@@ -3723,6 +3757,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                 isTNT: secondPieceBase.isTNT || false,
                 isDrill: secondPieceBase.isDrill || false,
                 isLightning: secondPieceBase.isLightning || false,
+                isRowClear: secondPieceBase.isRowClear || false,
+                isArea2x2Clear: secondPieceBase.isArea2x2Clear || false,
                 isSlime: secondPieceBase.isSlime || false,
                 isCatalystBomb: secondPieceBase.isCatalystBomb || false,
                 isWildcard: secondPieceBase.isWildcard || false,
@@ -3800,6 +3836,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             isTNT: piece.isTNT || false,
             isDrill: piece.isDrill || false,
             isLightning: piece.isLightning || false,
+            isRowClear: piece.isRowClear || false,
+            isArea2x2Clear: piece.isArea2x2Clear || false,
             isSlime: piece.isSlime || false,
             isCatalystBomb: piece.isCatalystBomb || false,
             isWildcard: piece.isWildcard || false,
@@ -3899,6 +3937,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             isTNT: droppedPiece.isTNT || false,
             isDrill: droppedPiece.isDrill || false,
             isLightning: droppedPiece.isLightning || false,
+            isRowClear: droppedPiece.isRowClear || false,
+            isArea2x2Clear: droppedPiece.isArea2x2Clear || false,
             isSlime: droppedPiece.isSlime || false,
             isCatalystBomb: droppedPiece.isCatalystBomb || false,
             isWildcard: droppedPiece.isWildcard || false,
@@ -3988,6 +4028,8 @@ Can you beat my score? Play ThinkFastBlast!`;
     let hasTnt = false;
     let hasDrill = false;
     let hasLightning = false;
+    let hasRowClear = false;
+    let hasArea2x2Clear = false;
     let didLineClear = false;
     let didColorMatch = false;
     let fruitCount = 0;
@@ -4033,6 +4075,30 @@ Can you beat my score? Play ThinkFastBlast!`;
             }
           }
           pointsEarned += 60;
+        }
+      }
+    }
+
+    // 2b. Process Row Clear (clear entire row y)
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isRowClear) {
+          hasRowClear = true;
+          const rowCells = findRowClearCells(board, y);
+          rowCells.forEach((c) => addCellToClear(c.y, c.x));
+          pointsEarned += 50;
+        }
+      }
+    }
+
+    // 2c. Process 2x2 Area Clear (clear 2x2 area around y, x)
+    for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+      for (let x = 0; x < BOARD_WIDTH; x += 1) {
+        if (board[y][x]?.isArea2x2Clear) {
+          hasArea2x2Clear = true;
+          const areaCells = findArea2x2ClearCells(board, y, x);
+          areaCells.forEach((c) => addCellToClear(c.y, c.x));
+          pointsEarned += 40;
         }
       }
     }
@@ -4134,6 +4200,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             cell.isTNT ||
             cell.isDrill ||
             cell.isLightning ||
+            cell.isRowClear ||
+            cell.isArea2x2Clear ||
             cell.isCatalystBomb
           ) {
             continue;
@@ -4164,21 +4232,25 @@ Can you beat my score? Play ThinkFastBlast!`;
           ? "tnt"
           : hasDrill
             ? "drill"
-            : fruitEffects.has("orange")
+            : hasRowClear
               ? "orange"
-              : fruitEffects.has("banana")
+              : hasArea2x2Clear
                 ? "banana"
-                : fruitEffects.has("apple")
-                  ? "apple"
-                  : didLineClear
-                    ? "line"
-                    : "match";
+                : fruitEffects.has("orange")
+                  ? "orange"
+                  : fruitEffects.has("banana")
+                    ? "banana"
+                    : fruitEffects.has("apple")
+                      ? "apple"
+                      : didLineClear
+                        ? "line"
+                        : "match";
 
       queueMicrotask(() => triggerShake());
       queueMicrotask(() => triggerBoardThump());
       queueMicrotask(() => setBlastEffect(nextBlastEffect));
       queueMicrotask(() => setExplodingCells(cellsToClear));
-      queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning ? "blast" : "score"));
+      queueMicrotask(() => triggerFlash(hasTnt || hasDrill || hasLightning || hasRowClear || hasArea2x2Clear ? "blast" : "score"));
       if (hasLightning) {
         queueMicrotask(() => triggerElectrify());
         queueMicrotask(() => playSFX("thunder"));
@@ -5359,7 +5431,19 @@ Can you beat my score? Play ThinkFastBlast!`;
         newPiece = makePowerUp(piece, nextStreak);
         addFloatingText(`COMBO x${nextStreak}! Lightning Rod ⚡`, piece?.x || 5, piece?.y || 2);
         unlockAchievement("lightning");
+      } else {
+        const evolvedPower = getEvolvedStreakPowerType(nextStreak);
+        if (evolvedPower === "row_clear") {
+          playSFX("streak");
+          newPiece = makePowerBlock(piece, evolvedPower, nextStreak);
+          addFloatingText(`COMBO x${nextStreak}! Row Clear ↔️`, piece?.x || 5, piece?.y || 2);
+        } else if (evolvedPower === "area_clear") {
+          playSFX("streak");
+          newPiece = makePowerBlock(piece, evolvedPower, nextStreak);
+          addFloatingText(`COMBO x${nextStreak}! 2x2 Area Clear 🔲`, piece?.x || 5, piece?.y || 2);
+        }
       }
+
 
       setActivePiece(newPiece);
       setFeedback(`Correct!${bonusText} You have control.`);
@@ -5635,6 +5719,8 @@ Can you beat my score? Play ThinkFastBlast!`;
             isTNT: activePiece.isTNT,
             isDrill: activePiece.isDrill,
             isLightning: activePiece.isLightning,
+            isRowClear: activePiece.isRowClear,
+            isArea2x2Clear: activePiece.isArea2x2Clear,
             isCatalystBomb: activePiece.isCatalystBomb,
             isWildcard: activePiece.isWildcard,
           };
@@ -6117,6 +6203,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                               isTNT: activePiece2.isTNT,
                               isDrill: activePiece2.isDrill,
                               isLightning: activePiece2.isLightning,
+                              isRowClear: activePiece2.isRowClear,
+                              isArea2x2Clear: activePiece2.isArea2x2Clear,
                             };
                           }
                         });
@@ -6574,6 +6662,8 @@ Can you beat my score? Play ThinkFastBlast!`;
                     if (cell?.isTNT) cellClass += " animate-glow-tnt";
                     if (cell?.isDrill) cellClass += " animate-glow-drill";
                     if (cell?.isLightning) cellClass += " animate-glow-lightning";
+                    if (cell?.isRowClear) cellClass += " animate-glow-row";
+                    if (cell?.isArea2x2Clear) cellClass += " animate-glow-area";
 
                     if (isExploding) {
                       cellClass += ` block-detonating block-detonating-${blastEffect}`;
@@ -8158,7 +8248,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               <div className="drop-guidance w-full flex flex-col items-center md:items-start text-slate-300">
                 <h3 className="text-xl md:text-2xl font-black mb-3 md:mb-6 text-white drop-shadow-md">
                   {isControllable
-                    ? `Place your block! ${activePiece?.isTNT ? "💣 TNT active" : activePiece?.isDrill ? "🌀 Drill active" : activePiece?.isLightning ? "⚡ Lightning active" : activePiece?.isSlime ? "🦠 Sticky Slime active" : activePiece?.isCatalystBomb ? "💣 Catalyst Bomb active" : activePiece?.isWildcard ? "✨ Wildcard Star active" : ""}`
+                    ? `Place your block! ${activePiece?.isTNT ? "💣 TNT active" : activePiece?.isDrill ? "🌀 Drill active" : activePiece?.isLightning ? "⚡ Lightning active" : activePiece?.isRowClear ? "↔️ Row Clear active" : activePiece?.isArea2x2Clear ? "🔲 2x2 Area Clear active" : activePiece?.isSlime ? "🦠 Sticky Slime active" : activePiece?.isCatalystBomb ? "💣 Catalyst Bomb active" : activePiece?.isWildcard ? "✨ Wildcard Star active" : ""}`
                     : "STONE INCOMING!"}
                 </h3>
                 {isControllable ? (
