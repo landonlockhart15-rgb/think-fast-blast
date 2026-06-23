@@ -9,6 +9,7 @@ let limiter = null;
 let arpeggiatorInterval = null;
 let currentArpNote = 0;
 let audioEnabled = true;
+let currentCorrectStreak = 0;
 
 let masterVolume = 1.0;
 let musicVolume = 1.0;
@@ -216,7 +217,7 @@ const menuProgression = [
   { root: 98.0, fifth: 146.83, tones: [196.0, 246.94, 293.66, 349.23], melody: [392.0, 440.0, 493.88, 523.25, 659.25] },
 ];
 
-const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs, fever = false }) => {
+const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs, fever = false, correctStreak = 0 }) => {
   const progression = scene === "menu" || scene === "victory" ? menuProgression : gameProgression;
   const bar = (fever && scene !== "menu" && scene !== "victory")
     ? Math.floor((step % 16) / 4)
@@ -345,10 +346,47 @@ const scheduleMusicStep = ({ now, step, scene, scaleType, intensity, intervalMs,
       filterFrequency: 300,
     });
   }
+
+  // Dedicated Combo audio track layer that builds in pitch and intensity as the streak increases
+  if (scene !== "menu" && scene !== "victory" && correctStreak >= 3) {
+    const comboLevel = Math.min(correctStreak, 12);
+    if (beat % 2 === 1) {
+      const semis = (comboLevel - 3) * 1.5;
+      const shift = Math.pow(2, semis / 12);
+      const baseFreq = 523.25 * shift;
+      const comboGain = Math.min(0.04, 0.012 + (comboLevel - 3) * 0.004);
+
+      playTone({
+        destination: musicGain,
+        type: "sine",
+        frequency: baseFreq,
+        startTime: now,
+        duration: (intervalMs / 1000) * 0.45,
+        gain: comboGain,
+        detune: Math.sin(now * 12) * 10,
+        filterType: "highpass",
+        filterFrequency: 600,
+      });
+
+      if (comboLevel >= 6 && beat === 7) {
+        playTone({
+          destination: musicGain,
+          type: "triangle",
+          frequency: baseFreq * 1.5,
+          startTime: now + 0.04,
+          duration: 0.08,
+          gain: comboGain * 0.5,
+          filterType: "highpass",
+          filterFrequency: 1000,
+        });
+      }
+    }
+  }
 };
 
-export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game", fever = false) => {
+export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1, scene = "game", fever = false, correctStreak = 0) => {
   if (!audioEnabled) return;
+  currentCorrectStreak = correctStreak;
   stopArpeggiator();
   initAudio();
   if (!audioCtx) return;
@@ -364,7 +402,7 @@ export const startArpeggiator = (bpm = 110, scaleType = "minor", intensity = 0.1
     try {
       if (!audioCtx || audioCtx.state === "suspended" || !audioEnabled) return;
       const now = audioCtx.currentTime;
-      scheduleMusicStep({ now, step: localStep, scene, scaleType, intensity, intervalMs, fever });
+      scheduleMusicStep({ now, step: localStep, scene, scaleType, intensity, intervalMs, fever, correctStreak: currentCorrectStreak });
       localStep += 1;
       currentArpNote = localStep;
     } catch (e) {
@@ -545,6 +583,18 @@ export const playSFX = (type, comboCount = 0) => {
         // chime by a semitone (capped) so the player literally hears momentum build.
         const semis = Math.min(Math.max(comboCount - 1, 0), 12);
         const shift = Math.pow(2, semis / 12);
+        
+        // Satisfying high-frequency 'pop' sound overlay
+        playTone({
+          frequency: 880 * shift,
+          startTime: now,
+          duration: 0.04,
+          gain: 0.08,
+          type: "sine",
+          endFrequency: 1500 * shift,
+          destination: sfxGain,
+        });
+
         playTone({ frequency: 523.25 * shift, startTime: now, duration: 0.16, gain: 0.1, type: "sine", endFrequency: 659.25 * shift, destination: sfxGain });
         playTone({ frequency: 659.25 * shift, startTime: now + 0.08, duration: 0.14, gain: 0.09, type: "sine", endFrequency: 783.99 * shift, destination: sfxGain });
         playTone({ frequency: 783.99 * shift, startTime: now + 0.16, duration: 0.14, gain: 0.08, type: "triangle", endFrequency: 1046.5 * shift, destination: sfxGain });
@@ -563,7 +613,33 @@ export const playSFX = (type, comboCount = 0) => {
       }
 
       case "incorrect": {
-        playTone({ frequency: 150, startTime: now, duration: 0.35, gain: 0.14, type: "sawtooth", endFrequency: 90, destination: sfxGain });
+        // Tiered low-frequency 'thud' based on miss count (comboCount represents miss/strike count)
+        const severity = Math.max(1, comboCount);
+        const baseFreq = Math.max(80, 150 - severity * 20); // deeper thud as misses increase
+        const endFreq = Math.max(30, 80 - severity * 10);
+        const duration = 0.3 + severity * 0.05;
+        const gain = 0.12 + severity * 0.03;
+        
+        playTone({
+          frequency: baseFreq,
+          startTime: now,
+          duration: duration,
+          gain: gain,
+          type: "sawtooth",
+          endFrequency: endFreq,
+          filterType: "lowpass",
+          filterFrequency: baseFreq + 40,
+          destination: sfxGain,
+        });
+
+        // Muffled low noise burst for thud impact weight
+        playNoiseBurst({
+          duration: duration - 0.05,
+          gain: gain * 1.2,
+          filterFrequency: baseFreq + 60,
+          filterDecay: endFreq,
+          destination: sfxGain,
+        });
         break;
       }
 

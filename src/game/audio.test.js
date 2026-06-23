@@ -245,12 +245,15 @@ test("Sound effects play tones and noises correctly based on types", () => {
   const oscillators2 = createdNodes.filter(n => n.nodeType === "oscillator");
   assert.ok(oscillators2.length >= 3, "Streak correct answer gets high sparkle oscillator");
 
-  // 3. playSFX for incorrect sound (low pitch descending sawtooth)
+  // 3. playSFX for incorrect sound (low pitch descending sawtooth + thud noise burst)
   createdNodes.length = 0;
-  playSFX("incorrect");
+  playSFX("incorrect", 1);
   const oscIncorrect = createdNodes.find(n => n.nodeType === "oscillator");
   assert.ok(oscIncorrect);
   assert.equal(oscIncorrect.type, "sawtooth");
+  const noiseIncorrect = createdNodes.find(n => n.nodeType === "bufferSource");
+  assert.ok(noiseIncorrect, "Incorrect answer should play a thud noise burst");
+  assert.ok(noiseIncorrect.started);
 
   // 4. playSFX for explosions
   createdNodes.length = 0;
@@ -324,4 +327,23 @@ test("Arpeggiator remains a no-op when audio is disabled before first playback",
 
   assert.equal(audioContextInstances.length, 0, "Disabled audio should not allocate an AudioContext");
   assert.equal(createdNodes.length, 0, "Disabled audio should not create or schedule Web Audio nodes");
+});
+
+test("Arpeggiator combo track is scheduled based on streak", async () => {
+  setAudioEnabled(true);
+  
+  // Clear createdNodes
+  createdNodes.length = 0;
+  
+  // Start arpeggiator with combo streak of 5
+  startArpeggiator(240, "minor", 0.5, "game", false, 5);
+  
+  // Wait a small timeout to let the interval trigger at least once
+  await new Promise(resolve => setTimeout(resolve, 300));
+  
+  stopArpeggiator();
+  
+  // High-pitched combo track oscillators should be created (frequency > 500)
+  const comboOscs = createdNodes.filter(n => n.nodeType === "oscillator" && n.frequency.value > 500);
+  assert.ok(comboOscs.length > 0, "Combo track should schedule high-pitched oscillators during a streak");
 });
