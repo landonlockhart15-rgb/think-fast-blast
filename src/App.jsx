@@ -1272,20 +1272,20 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
         const burstCount = isMobile ? 12 : 25;
         for (let i = 0; i < burstCount; i++) {
           const angle = Math.random() * Math.PI * 2;
-          const speed = Math.random() * 4 + 2;
+          const speed = Math.random() * 5 + 2.5;
           particlesRef.current.push({
             x: cx,
             y: cy,
             vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed - 0.5,
+            vy: Math.sin(angle) * speed - 0.7,
             color: colors[Math.floor(Math.random() * colors.length)],
             size: Math.random() * 4 + 2,
             alpha: 1.0,
-            decay: Math.random() * 0.035 + 0.015,
-            gravity: 0.05,
-            kind: "spark",
+            decay: Math.random() * 0.025 + 0.01,
+            gravity: 0.06,
+            kind: "sparkle",
             rotation: Math.random() * Math.PI,
-            spin: (Math.random() - 0.5) * 0.1,
+            spin: (Math.random() - 0.5) * 0.25,
           });
         }
       }
@@ -1306,11 +1306,11 @@ function BoardParticlesCanvas({ explodingCells, correctStreak, effectType = "mat
               color: "#fbbf24",
               size: Math.random() * 4 + 2,
               alpha: 1.0,
-              decay: Math.random() * 0.03 + 0.015,
+              decay: Math.random() * 0.02 + 0.01,
               gravity: 0.03,
-              kind: "spark",
-              rotation: 0,
-              spin: 0,
+              kind: "sparkle",
+              rotation: Math.random() * Math.PI,
+              spin: (Math.random() - 0.5) * 0.15,
             });
           }
         }
@@ -2727,6 +2727,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (isDesperationActive && !prevDesperationRef.current) {
       playSFX("incorrect");
       triggerFlash("danger");
+      triggerShake();
       vibrate([80, 80]);
       addFloatingText("🚨 DESPERATION ACTIVE! 🪨", 5, 3);
       pushToast({
@@ -2737,7 +2738,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       });
     }
     prevDesperationRef.current = isDesperationActive;
-  }, [isFrenzyActive, isDesperationActive, gameState, pushToast, playSFX, triggerFlash, vibrate, addFloatingText]);
+  }, [isFrenzyActive, isDesperationActive, gameState, pushToast, playSFX, triggerFlash, vibrate, addFloatingText, triggerShake]);
 
   // Helper to generate a Power-up block
   const makePowerUp = (piece, streak) => {
@@ -2989,10 +2990,18 @@ Can you beat my score? Play ThinkFastBlast!`;
     const { activePiece2: piece, board2: currentBoard } = stateRef.current;
     if (!piece) return;
 
-    playSFX("lock");
-    triggerShake2();
-    triggerBoardRecoil2();
-    vibrate(15);
+    if (piece.isStone) {
+      playSFX("thud");
+      triggerShake2();
+      triggerBoardRecoil2();
+      triggerBoardThump2();
+      vibrate([45, 35, 45]);
+    } else {
+      playSFX("lock");
+      triggerShake2();
+      triggerBoardRecoil2();
+      vibrate(15);
+    }
     setLastPlacedPiece2({
       x: piece.x,
       y: piece.y,
@@ -3031,7 +3040,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard2(nextBoard);
     setActivePiece2(null);
     setGameState("arena_resolving");
-  }, [triggerShake2, triggerBoardRecoil2, vibrate, setLastPlacedPiece2]);
+  }, [triggerShake2, triggerBoardRecoil2, triggerBoardThump2, vibrate, setLastPlacedPiece2]);
 
   const moveDown2 = useCallback(() => {
     const { activePiece2: piece, board2: currentBoard, isPaused: paused } = stateRef.current;
@@ -3808,10 +3817,18 @@ Can you beat my score? Play ThinkFastBlast!`;
     const { activePiece: piece, board: currentBoard } = stateRef.current;
     if (!piece) return;
 
-    playSFX("lock");
-    triggerShake();
-    triggerBoardRecoil();
-    vibrate(15);
+    if (piece.isStone) {
+      playSFX("thud");
+      triggerShake();
+      triggerBoardRecoil();
+      triggerBoardThump();
+      vibrate([45, 35, 45]);
+    } else {
+      playSFX("lock");
+      triggerShake();
+      triggerBoardRecoil();
+      vibrate(15);
+    }
     setLastPlacedPiece({
       x: piece.x,
       y: piece.y,
@@ -3850,7 +3867,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setBoard(nextBoard);
     setActivePiece(null);
     setGameState(stateRef.current.gameState === "arena_dropping" ? "arena_resolving" : "resolving");
-  }, [triggerShake, triggerBoardRecoil, vibrate, setLastPlacedPiece]);
+  }, [triggerShake, triggerBoardRecoil, triggerBoardThump, vibrate, setLastPlacedPiece]);
 
   // -------------------------------------------------------------------------
   // Controls
@@ -5451,12 +5468,14 @@ Can you beat my score? Play ThinkFastBlast!`;
     } else {
       const nextMisses = currentMisses + 1;
       playSFX("incorrect", nextMisses);
+      playSFX("thud");
       triggerFlash("danger");
       vibrate([60, 30, 90]);
       // Heavy stone slams straight onto the board here (instant lock, bypassing
       // lockPiece), so add the impact feedback that landing would normally give.
       triggerShake();
       triggerBoardRecoil();
+      triggerBoardThump();
       setCorrectStreak(0);
       setHeatLevel(0);
       setCoolingRemaining(3);
@@ -6078,7 +6097,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 </div>
 
                 <div
-                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
+                  className={`game-board arena-game-board ${arenaMode === "vs_ai" ? "arena-game-board-solo" : ""} ${getBoardThemeClass(stats.activeTheme)} p-0.5 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden flex-1 ${shake ? (isDesperationActive || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${isDesperationActive ? "desperation-active animate-critical-shake" : correctStreak >= 5 ? "fever-active" : correctStreak >= 3 ? "shadow-[0_0_15px_rgba(234,179,8,0.2)]" : ""}`}
                 >
                   {displayBoard.map((row, y) =>
                     row.map((cell, x) => {
@@ -6634,7 +6653,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
             <div
-              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${isDesperationActive ? "desperation-active" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
+              className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (isDesperationActive || heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${isDesperationActive ? "desperation-active animate-critical-shake" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
               onTouchEnd={handleBoardTouchEnd}
             >
