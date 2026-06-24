@@ -84,6 +84,9 @@ export function drawParticles(ctx, particles, isMobile) {
       // Fast path for mobile: no save/restore, no rotation, no shadowBlur
       if (p.kind === "spark") {
         ctx.fillRect(p.x - p.size * 1.7, p.y - 0.8, p.size * 3.4, 1.6);
+      } else if (p.kind === "sparkle") {
+        ctx.fillRect(p.x - p.size, p.y - 1, p.size * 2, 2);
+        ctx.fillRect(p.x - 1, p.y - p.size, 2, p.size * 2);
       } else if (p.kind === "shard" || p.kind === "debris") {
         ctx.fillRect(p.x - p.size, p.y - p.size * 0.45, p.size * 2, p.size * 0.9);
       } else {
@@ -100,6 +103,14 @@ export function drawParticles(ctx, particles, isMobile) {
       ctx.rotate(p.rotation || 0);
       if (p.kind === "spark") {
         ctx.fillRect(-p.size * 1.7, -0.8, p.size * 3.4, 1.6);
+      } else if (p.kind === "sparkle") {
+        ctx.beginPath();
+        ctx.moveTo(0, -p.size * 2);
+        ctx.quadraticCurveTo(0, 0, p.size * 2, 0);
+        ctx.quadraticCurveTo(0, 0, 0, p.size * 2);
+        ctx.quadraticCurveTo(0, 0, -p.size * 2, 0);
+        ctx.quadraticCurveTo(0, 0, 0, -p.size * 2);
+        ctx.fill();
       } else if (p.kind === "shard" || p.kind === "debris") {
         ctx.fillRect(-p.size, -p.size * 0.45, p.size * 2, p.size * 0.9);
       } else {

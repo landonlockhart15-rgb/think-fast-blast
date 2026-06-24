@@ -602,6 +602,22 @@ export const playSFX = (type, comboCount = 0) => {
         if (comboCount >= 3) {
           playTone({ frequency: 1318.51 * shift, startTime: now + 0.2, duration: 0.12, gain: 0.05, type: "sine", endFrequency: 1567.98 * shift, filterType: "highpass", filterFrequency: 800, destination: sfxGain });
         }
+        
+        // Sparkling chime overlay
+        const chimeBase = 1200 * shift;
+        [0, 1, 2, 3].forEach((i) => {
+          playTone({
+            frequency: chimeBase * (1 + i * 0.15),
+            startTime: now + i * 0.03,
+            duration: 0.18,
+            gain: 0.035,
+            type: "sine",
+            detune: i * 8,
+            filterType: "highpass",
+            filterFrequency: 1000,
+            destination: sfxGain,
+          });
+        });
         break;
       }
 
@@ -660,6 +676,29 @@ export const playSFX = (type, comboCount = 0) => {
 
       case "lock": {
         playTone({ frequency: 120, startTime: now, duration: 0.15, gain: 0.16, type: "sine", endFrequency: 40, destination: sfxGain });
+        break;
+      }
+
+      case "thud": {
+        // Heavy low-pitched impact thud for stone blocks
+        playTone({
+          frequency: 90,
+          startTime: now,
+          duration: 0.22,
+          gain: 0.24,
+          type: "triangle",
+          endFrequency: 30,
+          filterType: "lowpass",
+          filterFrequency: 150,
+          destination: sfxGain
+        });
+        playNoiseBurst({
+          duration: 0.18,
+          gain: 0.28,
+          filterFrequency: 100,
+          filterDecay: 20,
+          destination: sfxGain
+        });
         break;
       }
 
