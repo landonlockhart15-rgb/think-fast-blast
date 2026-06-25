@@ -72,6 +72,7 @@ import {
   MenuStatPill,
   AchievementCard,
   PiecePreview,
+  ComboMeter,
 } from "./components/GameUIElements";
 
 const STATS_STORAGE_KEY = "think-fast-blast-stats";
@@ -2127,6 +2128,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Redesign States
   const [correctStreak, setCorrectStreak] = useState(0);
+  const [invincibilityShields, setInvincibilityShields] = useState(0);
   const [heatLevel, setHeatLevel] = useState(0);
   const [coolingRemaining, setCoolingRemaining] = useState(0);
   const [floatingTexts, setFloatingTexts] = useState([]);
@@ -2263,6 +2265,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       isPaused,
       level,
       correctStreak,
+      invincibilityShields,
       heatLevel,
       coolingRemaining,
       questionIndex,
@@ -2288,7 +2291,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       arenaMode,
       aiDifficulty,
     };
-  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, isFrenzyActive, isDesperationActive, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+  }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, invincibilityShields, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, isFrenzyActive, isDesperationActive, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
 
 
 
@@ -3438,8 +3441,53 @@ Can you beat my score? Play ThinkFastBlast!`;
 
   // Timeout triggers
   const handleTimeOut = useCallback(() => {
-    const { activePiece: piece, board: currentBoard, misses: currentMisses, questionIndex: qIdx, shuffledQuestions: questions } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, misses: currentMisses, questionIndex: qIdx, shuffledQuestions: questions, invincibilityShields } = stateRef.current;
     if (!piece) return;
+
+    if (invincibilityShields > 0) {
+      setInvincibilityShields((prev) => Math.max(0, prev - 1));
+      playSFX("incorrect");
+      triggerFlash("info");
+      triggerShake();
+      setCorrectStreak(0);
+      setHeatLevel(0);
+
+      const question = questions[qIdx];
+      const correctAnswer = question ? question.options[question.answer] : "unknown";
+      rememberQuestionId(question?.id);
+      setRunMetrics((metrics) => ({
+        ...metrics,
+        questions: metrics.questions + 1,
+      }));
+
+      setLastCorrectAnswer(correctAnswer);
+      setFeedback(`Time's up! The answer was: ${correctAnswer}. Shield protected you! Normal block locked.`);
+      addFloatingText("SHIELD BLOCKED! 🛡️", piece.x || 4, piece.y || 4);
+
+      // Lock as a NORMAL piece on the board (not stone)
+      const nextBoard = currentBoard.map((row) => [...row]);
+      piece.shape.forEach((row, y) => {
+        row.forEach((value, x) => {
+          if (!value) return;
+          const boardY = piece.y + y;
+          const boardX = piece.x + x;
+          if (boardY >= 0 && boardY < BOARD_HEIGHT) {
+            nextBoard[boardY][boardX] = {
+              color: piece.color,
+              emoji: piece.emoji || "",
+              isFruit: piece.isFruit || false,
+              isWildcard: piece.isWildcard || false,
+            };
+          }
+        });
+      });
+      setBoard(nextBoard);
+      setActivePiece(null);
+
+      setGameState("transition");
+      setTimeout(() => setGameState("resolving"), 1500);
+      return;
+    }
 
     playSFX("incorrect");
     triggerFlash("danger");
@@ -3500,7 +3548,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       setGameState("transition");
       setTimeout(() => setGameState("resolving"), 1500);
     }
-  }, [level, triggerFlash, customQuestions, strikeLimit]);
+  }, [level, triggerFlash, customQuestions, strikeLimit, addFloatingText]);
 
   // -------------------------------------------------------------------------
   // Piece lifecycle
@@ -5307,6 +5355,93 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       setIsControllable(true);
 
+      // Trigger board-clearing effects for combo milestones
+      let nextBoard = board;
+      let cellsToExplode = [];
+      let didClear = false;
+      let powerEffect = null;
+      let powerLabel = "";
+      let powerSFXName = null;
+
+      if (nextStreak === 3) {
+        const powerResult = applyBoardPower(board, "power_earthquake");
+        if (powerResult.cleared > 0) {
+          nextBoard = powerResult.board;
+          cellsToExplode = powerResult.cells;
+          didClear = true;
+          powerEffect = "earthquake";
+          powerLabel = "COMBO x3: EARTHQUAKE! ≋";
+          powerSFXName = "harddrop";
+          const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+          setTotalScore((score) => score + powerResult.cleared * 2 * (isDopamine ? 2 : 1));
+        } else {
+          addFloatingText("COMBO x3! ⚡", piece?.x || 4, piece?.y || 4);
+        }
+      } else if (nextStreak === 5) {
+        const powerResult = applyBoardPower(board, "power_tornado");
+        if (powerResult.cleared > 0) {
+          nextBoard = powerResult.board;
+          cellsToExplode = powerResult.cells;
+          didClear = true;
+          powerEffect = "tornado";
+          powerLabel = "COMBO x5: TORNADO! 🌪️";
+          powerSFXName = "explosion";
+          const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+          setTotalScore((score) => score + powerResult.cleared * 2 * (isDopamine ? 2 : 1));
+        } else {
+          addFloatingText("COMBO x5! ⚡", piece?.x || 4, piece?.y || 4);
+        }
+      } else if (nextStreak === 7) {
+        setInvincibilityShields((prev) => Math.min(3, prev + 1));
+        addFloatingText("COMBO x7: SHIELD ACTIVE! 🛡️", piece?.x || 4, piece?.y || 4);
+        playSFX("streak");
+      } else if (nextStreak === 10) {
+        setInvincibilityShields((prev) => Math.min(3, prev + 1));
+        const powerResult = applyBoardPower(board, "power_flood");
+        if (powerResult.cleared > 0) {
+          nextBoard = powerResult.board;
+          cellsToExplode = powerResult.cells;
+          didClear = true;
+          powerEffect = "flood";
+          powerLabel = "COMBO x10: FLASH FLOOD & SHIELD! 🌊🛡️";
+          powerSFXName = "explosion";
+          const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+          setTotalScore((score) => score + powerResult.cleared * 2 * (isDopamine ? 2 : 1));
+        } else {
+          addFloatingText("COMBO x10: SHIELD ACTIVE! 🛡️", piece?.x || 4, piece?.y || 4);
+        }
+      } else if (nextStreak >= 13 && (nextStreak - 10) % 3 === 0) {
+        setInvincibilityShields((prev) => Math.min(3, prev + 1));
+        const powerResult = applyBoardPower(board, "power_fire");
+        if (powerResult.cleared > 0) {
+          nextBoard = powerResult.board;
+          cellsToExplode = powerResult.cells;
+          didClear = true;
+          powerEffect = "fire";
+          powerLabel = `COMBO x${nextStreak}: FIRESTORM & SHIELD! 🔥🛡️`;
+          powerSFXName = "explosion";
+          const isDopamine = stateRef.current.activeMutator === "dopamine_rush";
+          setTotalScore((score) => score + powerResult.cleared * 2 * (isDopamine ? 2 : 1));
+        } else {
+          addFloatingText(`COMBO x${nextStreak}: SHIELD ACTIVE! 🛡️`, piece?.x || 4, piece?.y || 4);
+        }
+      }
+
+      if (didClear) {
+        setBlastEffect(powerEffect);
+        setExplodingCells(cellsToExplode);
+        triggerShake();
+        triggerFlash(powerEffect === "fire" ? "danger" : "blast");
+        vibrate([30, 35, 60]);
+        addFloatingText(powerLabel, piece?.x || 4, piece?.y || 4);
+        if (powerSFXName) playSFX(powerSFXName);
+
+        window.setTimeout(() => {
+          setBoard(nextBoard);
+          setExplodingCells([]);
+        }, reduceMotion ? 120 : 520);
+      }
+
       // Check combo power-up conversion
       let newPiece = { ...piece };
       const streakPower = getStreakPowerType(nextStreak);
@@ -5338,99 +5473,115 @@ Can you beat my score? Play ThinkFastBlast!`;
         }
       }
 
-
       setActivePiece(newPiece);
       setFeedback(`Correct!${bonusText} You have control.`);
       setGameState("dropping");
     } else {
-      const nextMisses = currentMisses + 1;
-      playSFX("incorrect", nextMisses);
-      playSFX("thud");
-      triggerFlash("danger");
-      vibrate([60, 30, 90]);
-      // Heavy stone slams straight onto the board here (instant lock, bypassing
-      // lockPiece), so add the impact feedback that landing would normally give.
-      triggerShake();
-      triggerBoardRecoil();
-      triggerBoardThump();
-      setCorrectStreak(0);
-      setHeatLevel(0);
-      setCoolingRemaining(3);
-      const correctAnswer = question.options[question.answer];
-      setMisses(nextMisses);
-      setLastCorrectAnswer(correctAnswer);
-      setFeedback(`Wrong! The answer was ${correctAnswer}. Heavy Stone block incoming!`);
+      if (invincibilityShields > 0) {
+        setInvincibilityShields((prev) => Math.max(0, prev - 1));
+        playSFX("incorrect");
+        triggerFlash("info");
+        vibrate([30, 30]);
+        triggerShake();
+        setCorrectStreak(0);
+        setHeatLevel(0);
+        const correctAnswer = question.options[question.answer];
+        setLastCorrectAnswer(correctAnswer);
+        setFeedback(`Wrong! The answer was ${correctAnswer}. Shield protected you! No stone block dropped.`);
+        addFloatingText("SHIELD BLOCKED! 🛡️", piece?.x || 5, piece?.y || 4);
 
-      setIsControllable(false);
-      const desperationActive = stateRef.current.board.slice(0, 5).some(row => row.some(cell => cell !== null));
-      const stonePiece = {
-        ...piece,
-        color: "bg-zinc-800",
-        emoji: desperationActive ? "⛰️" : "🪨",
-        isStone: true,
-        isHeavyStone: true,
-        heavyHits: desperationActive ? 3 : 2,
-      };
-
-      const isInverse = stateRef.current.activeMutator === "inverse_gravity";
-      let y = stonePiece.y;
-      const currentBoard = board;
-      if (isInverse) {
-        while (!checkCollision({ ...stonePiece, y: y - 1 }, currentBoard, true)) {
-          y -= 1;
-        }
+        setIsControllable(true);
+        setGameState("dropping");
       } else {
-        while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoard)) {
-          y += 1;
-        }
-      }
-      const lockedStonePiece = { ...stonePiece, y };
-      setLastPlacedPiece({
-        x: lockedStonePiece.x,
-        y: lockedStonePiece.y,
-        shape: lockedStonePiece.shape,
-        color: lockedStonePiece.color,
-        timestamp: Date.now()
-      });
+        const nextMisses = currentMisses + 1;
+        playSFX("incorrect", nextMisses);
+        playSFX("thud");
+        triggerFlash("danger");
+        vibrate([60, 30, 90]);
+        // Heavy stone slams straight onto the board here (instant lock, bypassing
+        // lockPiece), so add the impact feedback that landing would normally give.
+        triggerShake();
+        triggerBoardRecoil();
+        triggerBoardThump();
+        setCorrectStreak(0);
+        setHeatLevel(0);
+        setCoolingRemaining(3);
+        const correctAnswer = question.options[question.answer];
+        setMisses(nextMisses);
+        setLastCorrectAnswer(correctAnswer);
+        setFeedback(`Wrong! The answer was ${correctAnswer}. Heavy Stone block incoming!`);
 
-      const nextBoard = currentBoard.map((row) => [...row]);
-      lockedStonePiece.shape.forEach((row, shapeY) => {
-        row.forEach((value, shapeX) => {
-          if (!value) return;
-          const boardY = lockedStonePiece.y + shapeY;
-          const boardX = lockedStonePiece.x + shapeX;
-          if (boardY >= 0 && boardY < BOARD_HEIGHT) {
-            nextBoard[boardY][boardX] = {
-              color: lockedStonePiece.color,
-              isStone: true,
-              emoji: lockedStonePiece.emoji,
-              isHeavyStone: lockedStonePiece.isHeavyStone,
-              heavyHits: lockedStonePiece.heavyHits,
-            };
+        setIsControllable(false);
+        const desperationActive = currentBoard.slice(0, 5).some(row => row.some(cell => cell !== null));
+        const stonePiece = {
+          ...piece,
+          color: "bg-zinc-800",
+          emoji: desperationActive ? "⛰️" : "🪨",
+          isStone: true,
+          isHeavyStone: true,
+          heavyHits: desperationActive ? 3 : 2,
+        };
+
+        const isInverse = stateRef.current.activeMutator === "inverse_gravity";
+        let y = stonePiece.y;
+        const currentBoardState = board;
+        if (isInverse) {
+          while (!checkCollision({ ...stonePiece, y: y - 1 }, currentBoardState, true)) {
+            y -= 1;
           }
+        } else {
+          while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoardState)) {
+            y += 1;
+          }
+        }
+        const lockedStonePiece = { ...stonePiece, y };
+        setLastPlacedPiece({
+          x: lockedStonePiece.x,
+          y: lockedStonePiece.y,
+          shape: lockedStonePiece.shape,
+          color: lockedStonePiece.color,
+          timestamp: Date.now()
         });
-      });
 
-      setBoard(nextBoard);
-      setActivePiece(null);
-
-      if (nextMisses >= strikeLimit) {
-        const activeLevel = level;
-        const recoveryDeck = buildQuestionDeck({
-          level: activeLevel,
-          banks: { ...QUESTION_BANKS, 99: customQuestions },
-          recentIds: readRecentQuestionIds(),
-          size: 8,
-          seed: `strike-${activeLevel}-${Date.now()}`,
+        const nextBoard = currentBoardState.map((row) => [...row]);
+        lockedStonePiece.shape.forEach((row, shapeY) => {
+          row.forEach((value, shapeX) => {
+            if (!value) return;
+            const boardY = lockedStonePiece.y + shapeY;
+            const boardX = lockedStonePiece.x + shapeX;
+            if (boardY >= 0 && boardY < BOARD_HEIGHT) {
+              nextBoard[boardY][boardX] = {
+                color: lockedStonePiece.color,
+                isStone: true,
+                emoji: lockedStonePiece.emoji,
+                isHeavyStone: lockedStonePiece.isHeavyStone,
+                heavyHits: lockedStonePiece.heavyHits,
+              };
+            }
+          });
         });
-        const q = randomItem(recoveryDeck);
-        setShuffledQuestions([q]);
-        setQuestionIndex(0);
-        setRecoveryTimer(4);
-        setGameState("strike_recovery");
-      } else {
-        setGameState("transition");
-        setTimeout(() => setGameState("resolving"), 1500);
+
+        setBoard(nextBoard);
+        setActivePiece(null);
+
+        if (nextMisses >= strikeLimit) {
+          const activeLevel = level;
+          const recoveryDeck = buildQuestionDeck({
+            level: activeLevel,
+            banks: { ...QUESTION_BANKS, 99: customQuestions },
+            recentIds: readRecentQuestionIds(),
+            size: 8,
+            seed: `strike-${activeLevel}-${Date.now()}`,
+          });
+          const q = randomItem(recoveryDeck);
+          setShuffledQuestions([q]);
+          setQuestionIndex(0);
+          setRecoveryTimer(4);
+          setGameState("strike_recovery");
+        } else {
+          setGameState("transition");
+          setTimeout(() => setGameState("resolving"), 1500);
+        }
       }
     }
 
@@ -5440,7 +5591,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil, setLastPlacedPiece]);
+  }, [shuffledQuestions, questionIndex, level, board, correctStreak, invincibilityShields, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil, setLastPlacedPiece]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
@@ -5508,6 +5659,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setShareFeedback("");
 
     setCorrectStreak(0);
+    setInvincibilityShields(0);
     setHeatLevel(0);
     setCoolingRemaining(0);
     setMaxStreak(0);
@@ -6416,11 +6568,6 @@ Can you beat my score? Play ThinkFastBlast!`;
                   💨 Wind: {windForce > 0 ? "👉 Right" : "👈 Left"}
                 </span>
               )}
-              {correctStreak >= 3 && (
-                <span className="text-yellow-400 font-black animate-pulse text-xs">
-                  🔥 Streak: {correctStreak}
-                </span>
-              )}
               <span className="text-red-400 flex items-center gap-0.5" aria-label={`Strikes ${misses} of ${strikeLimit}`}>
                 {Array.from({ length: strikeLimit }).map((_, i) => (
                   <span key={i} className={i < misses ? "strike-heart strike-heart-lost" : "strike-heart"}>
@@ -6429,6 +6576,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 ))}
               </span>
             </div>
+            <ComboMeter correctStreak={correctStreak} shields={invincibilityShields} />
             <div className="piece-preview-row game-board-width">
               <PiecePreview label="Hold" piece={heldPiece} muted={!heldPiece || holdUsed} />
               <div className="piece-preview-mission">
