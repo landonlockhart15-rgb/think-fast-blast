@@ -135,3 +135,89 @@ export function PiecePreview({ label, piece, muted = false }) {
     </div>
   );
 }
+
+export function ComboMeter({ correctStreak, shields }) {
+  // Determine next milestone
+  let nextMilestone = 3;
+  let nextReward = "Earthquake Clear ≋";
+  let colorClass = "from-emerald-500 to-teal-500";
+  let bgGlow = "";
+
+  if (correctStreak >= 10) {
+    nextMilestone = 13;
+    nextReward = "Firestorm 🔥 & Shield 🛡️";
+    colorClass = "from-red-500 via-pink-500 to-indigo-500";
+    bgGlow = "shadow-[0_0_20px_rgba(236,72,153,0.5)] border-pink-500/40";
+  } else if (correctStreak >= 7) {
+    nextMilestone = 10;
+    nextReward = "Flash Flood 🌊 & Shield 🛡️";
+    colorClass = "from-blue-500 via-indigo-500 to-purple-500";
+    bgGlow = "shadow-[0_0_15px_rgba(99,102,241,0.4)] border-indigo-500/40";
+  } else if (correctStreak >= 5) {
+    nextMilestone = 7;
+    nextReward = "Invincibility Shield 🛡️";
+    colorClass = "from-purple-500 to-indigo-500";
+    bgGlow = "shadow-[0_0_15px_rgba(139,92,246,0.4)] border-purple-500/40";
+  } else if (correctStreak >= 3) {
+    nextMilestone = 5;
+    nextReward = "Tornado Clear 🌪️";
+    colorClass = "from-amber-500 to-orange-500";
+    bgGlow = "shadow-[0_0_12px_rgba(245,158,11,0.4)] border-amber-500/40";
+  }
+
+  let prevMilestone = 0;
+  if (correctStreak >= 10) prevMilestone = 10;
+  else if (correctStreak >= 7) prevMilestone = 7;
+  else if (correctStreak >= 5) prevMilestone = 5;
+  else if (correctStreak >= 3) prevMilestone = 3;
+
+  const progressPct = correctStreak >= nextMilestone 
+    ? 100 
+    : Math.min(100, Math.max(0, ((correctStreak - prevMilestone) / (nextMilestone - prevMilestone)) * 100));
+
+  return (
+    <div className={`combo-meter-hud game-board-width mb-3 p-3 bg-slate-950/90 border border-slate-800/80 rounded-xl transition-all duration-300 ${correctStreak >= 3 ? `${bgGlow}` : ""}`}>
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-2">
+          <span className={`px-1.5 py-0.5 text-[9px] font-black rounded uppercase tracking-wider ${correctStreak >= 5 ? "bg-rose-500 text-white animate-pulse" : correctStreak >= 3 ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-slate-400"}`}>
+            Combo
+          </span>
+          <span className={`text-base font-black transition-all duration-300 ${correctStreak >= 5 ? "text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-purple-400 to-indigo-400 font-extrabold" : correctStreak >= 3 ? "text-amber-400" : "text-slate-300"}`}>
+            x{correctStreak}
+          </span>
+        </div>
+        
+        {/* Shield Indicator */}
+        <div className="flex items-center gap-1.5" aria-label={`Invincibility Shields: ${shields}`}>
+          {shields > 0 ? (
+            <div className="flex items-center gap-1 bg-indigo-950/60 border border-indigo-500/40 px-2 py-0.5 rounded-full text-indigo-300 animate-pulse">
+              <span className="text-[9px] font-black uppercase tracking-wider">Shield:</span>
+              <div className="flex gap-0.5">
+                {Array.from({ length: shields }).map((_, idx) => (
+                  <span key={idx} className="text-xs filter drop-shadow-[0_0_3px_rgba(99,102,241,0.8)]">🛡️</span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">No Shield</span>
+          )}
+        </div>
+      </div>
+
+      {/* Progress Bar to next reward */}
+      <div className="relative">
+        <div className="flex justify-between text-[9px] text-slate-400 mb-0.5 font-semibold uppercase tracking-wider">
+          <span>Next: {nextReward}</span>
+          <span className="text-slate-500">{correctStreak}/{nextMilestone}</span>
+        </div>
+        <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800/80">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${colorClass} transition-all duration-300 ease-out`}
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
