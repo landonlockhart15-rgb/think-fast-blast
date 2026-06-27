@@ -41,10 +41,10 @@ const readSnapshot = (roomCode, playerId) => {
   }
 };
 
-function BoardGrid({ board, piece, canControl }) {
+function BoardGrid({ board, piece, canControl, isMini = false }) {
   const display = board.map((row) => [...row]);
 
-  if (piece && canControl) {
+  if (piece && canControl && !isMini) {
     let ghostY = piece.y;
     while (!checkCollision({ ...piece, y: ghostY + 1 }, board)) ghostY += 1;
     if (ghostY > piece.y) {
@@ -75,7 +75,7 @@ function BoardGrid({ board, piece, canControl }) {
   }
 
   return (
-    <div className="online-arena-board grid grid-rows-16 grid-cols-10 gap-px">
+    <div className={`online-arena-board grid grid-rows-16 grid-cols-10 gap-px ${isMini ? "mini" : ""}`}>
       {display.flatMap((row, y) =>
         row.map((cell, x) => (
           <div
@@ -85,8 +85,9 @@ function BoardGrid({ board, piece, canControl }) {
             } ${cell?.isGhost ? "ghost-block opacity-40" : ""} ${
               cell?.isLava ? "border border-orange-500 bg-orange-600 animate-pulse animate-glow-lava" : ""
             } ${cell?.isStone && !cell?.isLava ? "border border-slate-400 bg-slate-600" : ""}`}
+            style={isMini ? { fontSize: "0.3rem", lineHeight: "1" } : undefined}
           >
-            {cell?.emoji || ""}
+            {isMini ? "" : (cell?.emoji || "")}
           </div>
         ))
       )}
@@ -163,7 +164,8 @@ export default function OnlineArena({
     setMatch(payload);
     setScreen("match");
     applyRound(payload.round || 0, payload.seed);
-  }, [applyRound, clientId]);
+    window.setTimeout(() => sendSnapshot(nextArena), 100);
+  }, [applyRound, clientId, sendSnapshot]);
 
   const connectRoom = useCallback((code, host) => {
     const normalized = normalizeRoomCode(code);
@@ -203,10 +205,17 @@ export default function OnlineArena({
           .slice(0, 4);
         const electedHostId = unique[0]?.id;
         setIsHost(electedHostId === clientId);
-        setPlayers(unique.map((player) => ({
-          ...player,
-          host: player.id === electedHostId,
-        })));
+        setPlayers((current) => {
+          const currentMap = new Map(current.map((p) => [p.id, p]));
+          return unique.map((player) => {
+            const existing = currentMap.get(player.id) || {};
+            return {
+              ...existing,
+              ...player,
+              host: player.id === electedHostId,
+            };
+          });
+        });
       })
       .on("broadcast", { event: "room_full" }, ({ payload }) => {
         if (payload.playerId !== clientId) return;
@@ -291,6 +300,13 @@ export default function OnlineArena({
           send("match_end", { winnerId: payload.playerId, winnerName: payload.name });
         }
       })
+      .on("broadcast", { event: "opponent_active_piece" }, ({ payload }) => {
+        setPlayers((current) =>
+          current.map((player) =>
+            player.id === payload.playerId ? { ...player, opponentActivePiece: payload.piece } : player
+          )
+        );
+      })
       .on("broadcast", { event: "garbage_attack" }, ({ payload }) => {
         if (payload.fromId === clientId) return;
         setArena((current) => {
@@ -349,6 +365,15 @@ export default function OnlineArena({
   useEffect(() => () => {
     if (channelRef.current) supabase.removeChannel(channelRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!match) return;
+    send("opponent_active_piece", {
+      playerId: clientId,
+      piece: activePiece,
+      round: match.round,
+    });
+  }, [activePiece, clientId, match, send]);
 
   useEffect(() => {
     if (!match || !roomCode) return;
@@ -556,9 +581,28 @@ export default function OnlineArena({
       <div className="online-opponent-strip">
         {sortedPlayers.map((player) => (
           <div key={player.id} className={player.id === clientId ? "online-opponent-self" : ""}>
-            <strong>{player.id === clientId ? "You" : player.name}</strong>
-            <span>{player.score || 0}</span>
-            {player.toppedOut && <em>OUT</em>}
+            <div className="flex w-full justify-between items-center gap-2 border-b border-slate-800 pb-1 text-[10px]">
+              <strong className="truncate max-w-[80px]">{player.id === clientId ? "You" : player.name}</strong>
+              <span className="font-extrabold text-cyan-400">{player.score || 0}</span>
+            </div>
+            {player.toppedOut ? (
+              <em className="text-red-500 font-extrabold text-[10px] tracking-wider animate-pulse my-1">OUT</em>
+            ) : (
+              player.id !== clientId && player.board ? (
+                <div className="mt-1 transition-all duration-300">
+                  <BoardGrid
+                    board={player.board}
+                    piece={player.opponentActivePiece}
+                    canControl={false}
+                    isMini={true}
+                  />
+                </div>
+              ) : (
+                player.id !== clientId && (
+                  <div className="text-[9px] text-slate-500 italic my-2">No board data</div>
+                )
+              )
+            )}
           </div>
         ))}
       </div>
