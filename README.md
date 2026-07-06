@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/lockhartlabs-logo.png" alt="LockhartLabs logo" width="96">
+</p>
+
 # Think Fast Blast
 
 Think Fast Blast is a responsive browser game that blends fast trivia with
@@ -26,6 +30,14 @@ drop heavy stone blocks and push the board closer to disaster.
 - Mobile, tablet, and desktop layouts
 - Touch, swipe, and keyboard controls
 - Combo streaks, special blocks, board hazards, and recovery moments
+- **Arcade Mutator Wheel** — Heat, Pressure, and Volcanic Surge mutators that
+  change board rules mid-run
+- **Endless Overdrive Survival Mode** and **Streak Fever Mode** for
+  replayable, escalating-difficulty runs
+- **Ghost Runner / Shadow Play** in Arena Mode, plus combo-based block
+  evolution and power-up feedback loops
+- Tactile haptic and audio "juice" feedback on hits, combos, and impacts
+- Synthwave, Nebula, and Gameboy visual themes
 - Blast Arena AI matches with one full-size human board
 - 2-4 player cross-device rooms with shared codes and reconnect snapshots
 - Web Audio music and sound effects with persistent volume controls
