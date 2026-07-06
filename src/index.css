@@ -1228,6 +1228,26 @@ button {
     display: none;
   }
 
+  .gameplay-dropping .piece-preview-row,
+  .gameplay-dropping .win-goals,
+  .gameplay-dropping .power-deck {
+    display: none;
+  }
+
+  .gameplay-dropping .game-status-banner,
+  .gameplay-resolving .game-status-banner {
+    margin-top: 0.22rem;
+    padding: 0.28rem 0.5rem;
+    border-radius: 0.55rem;
+    font-size: 0.5rem;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    animation: none;
+  }
+
   .gameplay-layout .win-goal {
     grid-template-columns: 5.8rem minmax(0, 1fr);
   }
@@ -1267,7 +1287,7 @@ button {
   .gameplay-dropping .game-board,
   .gameplay-transition .game-board,
   .gameplay-resolving .game-board {
-    width: min(272px, 70vw, calc((100dvh - 300px) * 0.625));
+    width: min(260px, 68vw, calc((100dvh - 230px) * 0.625));
     min-width: 205px;
   }
 
@@ -1380,14 +1400,41 @@ button {
     width: min(88vw, 20rem);
   }
 
+  .achievement-toast-stack-compact {
+    top: calc(env(safe-area-inset-top, 0px) + 3.1rem);
+    width: min(78vw, 17rem);
+  }
+
   .achievement-toast {
     gap: 0.5rem;
     border-radius: 0.85rem;
     padding: 0.45rem 0.65rem;
   }
 
+  .achievement-toast-stack-compact .achievement-toast {
+    gap: 0.35rem;
+    border-radius: 0.65rem;
+    padding: 0.32rem 0.48rem;
+  }
+
+  .achievement-toast-stack-compact .achievement-toast span:nth-child(2) span:first-child,
+  .achievement-toast-stack-compact .achievement-toast span:nth-child(2) span:last-child {
+    display: none;
+  }
+
   .achievement-toast > span:first-child {
     font-size: 1.25rem;
+  }
+
+  .achievement-toast-stack-compact .achievement-toast > span:first-child {
+    font-size: 1rem;
+  }
+
+  .achievement-toast-stack-compact .achievement-toast span:nth-child(2) span:nth-child(2) {
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .mobile-control-button,

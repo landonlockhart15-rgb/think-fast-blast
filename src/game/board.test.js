@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import { BOARD_HEIGHT, BOARD_WIDTH } from "../data/constants.js";
 import {
   checkCollision,
+  compactBoardByGravity,
   clearBoardCells,
   createEmptyBoard,
+  findSpawnY,
   findBlastCells,
   findConnectedColorMatches,
   findFruitEffectCells,
@@ -36,6 +38,40 @@ test("checkCollision allows bottom-aligned pieces under inverse gravity", () => 
   const piece = { shape: [[1], [1]], x: 0, y: BOARD_HEIGHT - 2 };
 
   assert.equal(checkCollision(piece, createEmptyBoard(), true), false);
+});
+
+test("findSpawnY moves inverse-gravity spawns above bottom blockers", () => {
+  const board = createEmptyBoard();
+  board[BOARD_HEIGHT - 1][4] = { color: "bg-yellow-400" };
+  const piece = { shape: [[1]], x: 4 };
+
+  assert.equal(findSpawnY(piece, board, true), BOARD_HEIGHT - 2);
+});
+
+test("compactBoardByGravity packs blocks toward the inverse-gravity ceiling", () => {
+  const board = createEmptyBoard();
+  board[BOARD_HEIGHT - 1][3] = { color: "bg-yellow-400" };
+  board[10][3] = { color: "bg-blue-500" };
+
+  const nextBoard = compactBoardByGravity(board, true);
+
+  assert.equal(nextBoard[0][3].color, "bg-blue-500");
+  assert.equal(nextBoard[1][3].color, "bg-yellow-400");
+  assert.equal(nextBoard[10][3], null);
+  assert.equal(nextBoard[BOARD_HEIGHT - 1][3], null);
+});
+
+test("compactBoardByGravity keeps normal gravity packing blocks at the floor", () => {
+  const board = createEmptyBoard();
+  board[0][3] = { color: "bg-yellow-400" };
+  board[10][3] = { color: "bg-blue-500" };
+
+  const nextBoard = compactBoardByGravity(board);
+
+  assert.equal(nextBoard[BOARD_HEIGHT - 2][3].color, "bg-yellow-400");
+  assert.equal(nextBoard[BOARD_HEIGHT - 1][3].color, "bg-blue-500");
+  assert.equal(nextBoard[0][3], null);
+  assert.equal(nextBoard[10][3], null);
 });
 
 test("findConnectedColorMatches clears any orthogonally touching group of five", () => {

@@ -16,8 +16,10 @@ import {
 import { QUESTION_BANKS } from "./data/questions";
 import {
   checkCollision,
+  compactBoardByGravity,
   clearBoardCells,
   createEmptyBoard,
+  findSpawnY,
   findFruitEffectCells,
   rotateShapeClockwise,
   shuffleArray,
@@ -3639,13 +3641,11 @@ Can you beat my score? Play ThinkFastBlast!`;
     const width = pieceBase.shape[0].length;
     const x = Math.floor(BOARD_WIDTH / 2) - Math.floor(width / 2);
     const isInverse = stateRef.current.activeMutator === "inverse_gravity";
-    const height = pieceBase.shape.length;
-    const y = isInverse ? BOARD_HEIGHT - height : 0;
     const newPiece = {
       ...pieceBase,
       x,
-      y,
     };
+    newPiece.y = findSpawnY(newPiece, stateRef.current.board, isInverse);
 
     if (checkCollision(newPiece, stateRef.current.board, isInverse)) {
       handleGameEnd(false, totalScore);
@@ -3662,13 +3662,11 @@ Can you beat my score? Play ThinkFastBlast!`;
       const secondPieceBase = createPieceForLevel(activeLevel, false);
       const secondWidth = secondPieceBase.shape[0].length;
       let secondX = x < BOARD_WIDTH / 2 ? BOARD_WIDTH - secondWidth : 0;
-      const secondHeight = secondPieceBase.shape.length;
-      const secondY = isInverse ? BOARD_HEIGHT - secondHeight : 0;
       const secondPiece = {
         ...secondPieceBase,
         x: secondX,
-        y: secondY,
       };
+      secondPiece.y = findSpawnY(secondPiece, stateRef.current.board, isInverse);
 
       if (!checkCollision(secondPiece, stateRef.current.board, isInverse)) {
         let dropY = secondPiece.y;
@@ -3727,14 +3725,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     const replacement = heldPiece || nextPiece || createPieceForLevel(activeLevel, false);
     const replacementWidth = replacement.shape[0].length;
     const isInverse = stateRef.current.activeMutator === "inverse_gravity";
-    const replacementHeight = replacement.shape.length;
-    const spawnY = isInverse ? BOARD_HEIGHT - replacementHeight : 0;
     
     const replacementPiece = {
       ...replacement,
       x: Math.floor(BOARD_WIDTH / 2) - Math.floor(replacementWidth / 2),
-      y: spawnY,
     };
+    replacementPiece.y = findSpawnY(replacementPiece, currentBoard, isInverse);
 
     if (checkCollision(replacementPiece, currentBoard, isInverse)) return;
     setHeldPiece(storedPiece);
@@ -3742,7 +3738,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     setActivePiece(replacementPiece);
     setHoldUsed(true);
     playSFX("hold");
-    addFloatingText("HOLD SWAP!", replacementPiece.x, spawnY + (isInverse ? -1 : 2));
+    addFloatingText("HOLD SWAP!", replacementPiece.x, replacementPiece.y + (isInverse ? -1 : 2));
   }, [holdUsed, heldPiece, nextPiece, createPieceForLevel, addFloatingText]);
 
   const lockPiece = useCallback(() => {
@@ -4206,22 +4202,11 @@ Can you beat my score? Play ThinkFastBlast!`;
       }
 
       const timer = setTimeout(() => {
-        const afterClearBoard = clearBoardCells(board, cellsToClear);
-
-        for (let x = 0; x < BOARD_WIDTH; x += 1) {
-          let writeY = BOARD_HEIGHT - 1;
-          for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
-            if (afterClearBoard[y][x] === null) continue;
-            if (writeY !== y) {
-              afterClearBoard[writeY][x] = {
-                ...afterClearBoard[y][x],
-                landedAt: Date.now()
-              };
-              afterClearBoard[y][x] = null;
-            }
-            writeY -= 1;
-          }
-        }
+        const inverseGravityActive = stateRef.current.activeMutator === "inverse_gravity";
+        const afterClearBoard = compactBoardByGravity(
+          clearBoardCells(board, cellsToClear),
+          inverseGravityActive
+        );
 
         setBoard(afterClearBoard);
         setExplodingCells([]);
@@ -5212,6 +5197,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       const isInverse = activeMutator === "inverse_gravity";
       const movedPiece = { ...piece, y: piece.y + (isInverse ? -1 : 1) };
       if (!checkCollision(movedPiece, currentBoard, isInverse)) {
+        stateRef.current.activePiece = movedPiece;
         setActivePiece(movedPiece);
       } else {
         clearInterval(timer);
@@ -5290,7 +5276,8 @@ Can you beat my score? Play ThinkFastBlast!`;
       return;
     }
     const correct = selectedIndex === question.answer;
-    const { activePiece: piece, board: currentBoard, misses: currentMisses } = stateRef.current;
+    const { board: currentBoard, misses: currentMisses } = stateRef.current;
+    const piece = activePiece || stateRef.current.activePiece;
     rememberQuestionId(question.id);
 
     // Handle Strike Recovery Phase
@@ -5611,7 +5598,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         return next >= 3 ? 0 : next;
       });
     }
-  }, [shuffledQuestions, questionIndex, level, board, correctStreak, invincibilityShields, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil, setLastPlacedPiece]);
+  }, [shuffledQuestions, questionIndex, activePiece, level, board, correctStreak, invincibilityShields, questionStartTime, spawnQuizPiece, totalScore, handleGameEnd, addFloatingText, triggerFlash, customQuestions, vibrate, unlockAchievement, runConfig.difficulty.quickWindowSeconds, strikeLimit, triggerShake, triggerBoardRecoil, setLastPlacedPiece]);
 
   // -------------------------------------------------------------------------
   // Level Initialization
@@ -5716,6 +5703,8 @@ Can you beat my score? Play ThinkFastBlast!`;
   const waitingOnMission = scoreGoalComplete && !objectiveStatus.complete && PLAYABLE_STATES.has(gameState);
   const aiRaceObjectiveStatus = getObjectiveStatus(runConfig, aiRaceMetrics);
   const rewardLevelMultiplier = runMode === "campaign" ? level : 5;
+  const isInverseGravity = activeMutator === "inverse_gravity";
+  const compactToastMode = ["dropping", "arena_dropping"].includes(gameState);
 
   const displayBoard = board.map((row) => [...row]);
 
@@ -5946,7 +5935,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       {/* Achievement / record toasts */}
       {achievementToasts.length > 0 && (
-        <div className="achievement-toast-stack fixed top-3 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-[min(92vw,22rem)] pointer-events-none">
+        <div className={`achievement-toast-stack ${compactToastMode ? "achievement-toast-stack-compact" : ""} fixed top-3 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-[min(92vw,22rem)] pointer-events-none`}>
           {achievementToasts.map((t) => (
             <div key={t.id} className="achievement-toast w-full flex items-center gap-3 rounded-2xl border border-cyan-300/40 bg-slate-900/95 px-4 py-2.5 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
               <span className="text-2xl leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]">{t.emoji}</span>
@@ -6645,30 +6634,30 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
               {activeMutator && (
-                <div className={`mutator-active-banner game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
+                <div className={`game-status-banner mutator-active-banner game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
                   MUTATOR ACTIVE: {MUTATOR_DETAILS[activeMutator].emoji} {MUTATOR_DETAILS[activeMutator].name}
                 </div>
               )}
 
               {isFrenzyActive && (
-                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-rose-500 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-white animate-pulse shadow-pink-500/30">
+                <div className="game-status-banner game-board-width mt-2 p-2.5 rounded-xl border border-rose-500 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-white animate-pulse shadow-pink-500/30">
                   ⚡ FRENZY ACTIVE: SPEED DOUBLED · 2x SCORE MULTIPLIER! ⚡
                 </div>
               )}
 
               {isDesperationActive && (
-                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-red-500 bg-gradient-to-r from-red-800 via-orange-900 to-amber-950 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-amber-200 animate-pulse shadow-red-500/40">
+                <div className="game-status-banner game-board-width mt-2 p-2.5 rounded-xl border border-red-500 bg-gradient-to-r from-red-800 via-orange-900 to-amber-950 text-[11px] font-black tracking-wide uppercase text-center shadow-lg text-amber-200 animate-pulse shadow-red-500/40">
                   ⚠️ DESPERATION ACTIVE: TIME SLOWED · OBSTACLES ARE HEAVIER 🪨
                 </div>
               )}
 
               {coolingRemaining > 0 && (
-                <div className="game-board-width mt-2 p-2.5 rounded-xl border border-blue-500 bg-gradient-to-r from-blue-900 to-indigo-950 text-[11px] font-black tracking-wide uppercase text-center shadow text-blue-300 animate-pulse">
+                <div className="game-status-banner game-board-width mt-2 p-2.5 rounded-xl border border-blue-500 bg-gradient-to-r from-blue-900 to-indigo-950 text-[11px] font-black tracking-wide uppercase text-center shadow text-blue-300 animate-pulse">
                   ❄️ COOLING ACTIVE: Gravity slowed · Heavy stones spawning · {coolingRemaining} blocks remaining
                 </div>
               )}
               {heatLevel > 0 && coolingRemaining === 0 && (
-                <div className={`game-board-width mt-2 p-2.5 rounded-xl border ${heatLevel === 5 ? "border-red-500 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-600 text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]" : "border-amber-500 bg-gradient-to-r from-amber-700 to-orange-800 text-amber-200"} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
+                <div className={`game-status-banner game-board-width mt-2 p-2.5 rounded-xl border ${heatLevel === 5 ? "border-red-500 bg-gradient-to-r from-red-600 via-orange-500 to-yellow-600 text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.5)]" : "border-amber-500 bg-gradient-to-r from-amber-700 to-orange-800 text-amber-200"} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
                   🔥 HEAT LEVEL {heatLevel}/5: Speed +{heatLevel * 10}% {heatLevel >= 3 && "· Visual Overdrive!"}
                 </div>
               )}
@@ -6799,7 +6788,7 @@ Can you beat my score? Play ThinkFastBlast!`;
                 <div className="grid grid-cols-4 gap-1.5">
                   <button type="button" onClick={() => moveHorizontal(-1)} className="mobile-control-button" aria-label="Move left">←</button>
                   <button type="button" onClick={rotatePiece} className="mobile-control-button" aria-label="Rotate">↑</button>
-                  <button type="button" onClick={moveDown} className="mobile-control-button" aria-label="Soft drop">↓</button>
+                  <button type="button" onClick={moveDown} className="mobile-control-button" aria-label={isInverseGravity ? "Soft rise" : "Soft drop"}>↓</button>
                   <button type="button" onClick={() => moveHorizontal(1)} className="mobile-control-button" aria-label="Move right">→</button>
                 </div>
                 <div className="grid grid-cols-[0.7fr_1.3fr] gap-1.5">
@@ -6812,7 +6801,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                   >
                     {holdUsed ? "HOLD USED" : "↔ HOLD"}
                   </button>
-                  <button type="button" onClick={hardDrop} className="mobile-drop-button" aria-label="Hard drop to bottom">⬇ DROP ⬇</button>
+                  <button type="button" onClick={hardDrop} className="mobile-drop-button" aria-label={isInverseGravity ? "Hard rise to top" : "Hard drop to bottom"}>
+                    {isInverseGravity ? "⬆ RISE ⬆" : "⬇ DROP ⬇"}
+                  </button>
                 </div>
               </div>
             )}
@@ -8318,7 +8309,9 @@ Can you beat my score? Play ThinkFastBlast!`;
                 {isControllable ? (
                   <>
                     <p className="lg:hidden text-cyan-200 text-xs font-bold mb-1">
-                      Tap to rotate · swipe to move · ↓ nudges down · DROP slams it to the bottom.
+                      {isInverseGravity
+                        ? "Tap to rotate · swipe to move · ↓ nudges upward · RISE sends it to the top."
+                        : "Tap to rotate · swipe to move · ↓ nudges down · DROP slams it to the bottom."}
                     </p>
                     <div className="hidden lg:flex flex-col gap-3 bg-slate-900/50 p-4 rounded-2xl border border-slate-700/50">
                       <p className="flex items-center gap-3">

@@ -30,6 +30,56 @@ export const checkCollision = (piece, currentBoard, inverseGravity = false) => {
   return false;
 };
 
+export const findSpawnY = (piece, currentBoard, inverseGravity = false) => {
+  const startY = inverseGravity ? BOARD_HEIGHT - piece.shape.length : 0;
+  let y = startY;
+
+  if (!inverseGravity) return y;
+
+  while (y > 0 && checkCollision({ ...piece, y }, currentBoard, true)) {
+    y -= 1;
+  }
+
+  return y;
+};
+
+export const compactBoardByGravity = (currentBoard, inverseGravity = false) => {
+  const nextBoard = currentBoard.map((row) => [...row]);
+
+  for (let x = 0; x < BOARD_WIDTH; x += 1) {
+    if (inverseGravity) {
+      let writeY = 0;
+      for (let y = 0; y < BOARD_HEIGHT; y += 1) {
+        if (nextBoard[y][x] === null) continue;
+        if (writeY !== y) {
+          nextBoard[writeY][x] = {
+            ...nextBoard[y][x],
+            landedAt: Date.now(),
+          };
+          nextBoard[y][x] = null;
+        }
+        writeY += 1;
+      }
+      continue;
+    }
+
+    let writeY = BOARD_HEIGHT - 1;
+    for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
+      if (nextBoard[y][x] === null) continue;
+      if (writeY !== y) {
+        nextBoard[writeY][x] = {
+          ...nextBoard[y][x],
+          landedAt: Date.now(),
+        };
+        nextBoard[y][x] = null;
+      }
+      writeY -= 1;
+    }
+  }
+
+  return nextBoard;
+};
+
 export const rotateShapeClockwise = (shape) =>
   shape[0].map((_, index) => shape.map((row) => row[index]).reverse());
 
