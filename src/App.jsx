@@ -6923,6 +6923,10 @@ Can you beat my score? Play ThinkFastBlast!`;
                   <h1 className="menu-title">
                     Think Fast Blast
                   </h1>
+                  <div className="menu-maker-mark" aria-label="Made by LockhartLabs">
+                    <img src="/lockhartlabs-logo.png" alt="" />
+                    <span>Made by LockhartLabs</span>
+                  </div>
                   <p className="menu-subtitle">
                     Answer fast, steer the falling blocks, and complete both goals to win.
                   </p>

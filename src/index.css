@@ -142,6 +142,33 @@ button {
     0 0 36px rgb(168 85 247 / 0.28);
 }
 
+.menu-maker-mark {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.7rem;
+  padding: 0.38rem 0.65rem 0.38rem 0.45rem;
+  border: 1px solid rgb(103 232 249 / 0.22);
+  border-radius: 0.75rem;
+  background: rgb(2 6 23 / 0.42);
+  color: #e0f2fe;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.menu-maker-mark img {
+  width: 1.7rem;
+  height: 1.7rem;
+  object-fit: contain;
+  border-radius: 0.45rem;
+  filter: drop-shadow(0 0 8px rgb(34 211 238 / 0.24));
+}
+
 .menu-subtitle {
   margin-top: 0.8rem;
   max-width: 34rem;
