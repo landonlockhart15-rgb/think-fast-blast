@@ -26,8 +26,14 @@ test("checkCollision treats the board ceiling as a collision under inverse gravi
   assert.equal(checkCollision(piece, createEmptyBoard(), true), true);
 });
 
-test("checkCollision does not treat the board floor as a collision under inverse gravity", () => {
+test("checkCollision still treats the board floor as a collision under inverse gravity", () => {
   const piece = { shape: [[1]], x: 0, y: BOARD_HEIGHT };
+
+  assert.equal(checkCollision(piece, createEmptyBoard(), true), true);
+});
+
+test("checkCollision allows bottom-aligned pieces under inverse gravity", () => {
+  const piece = { shape: [[1], [1]], x: 0, y: BOARD_HEIGHT - 2 };
 
   assert.equal(checkCollision(piece, createEmptyBoard(), true), false);
 });

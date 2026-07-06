@@ -19,12 +19,8 @@ export const checkCollision = (piece, currentBoard, inverseGravity = false) => {
 
       const boardX = piece.x + x;
       const boardY = piece.y + y;
-      let isOutOfBounds = boardX < 0 || boardX >= BOARD_WIDTH;
-      if (inverseGravity) {
-        isOutOfBounds = isOutOfBounds || boardY < 0;
-      } else {
-        isOutOfBounds = isOutOfBounds || boardY >= BOARD_HEIGHT;
-      }
+      const isOutOfBounds =
+        boardX < 0 || boardX >= BOARD_WIDTH || boardY < 0 || boardY >= BOARD_HEIGHT;
       const hitsPlacedBlock =
         boardY >= 0 && boardY < BOARD_HEIGHT && currentBoard[boardY][boardX] !== null;
 

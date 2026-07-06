@@ -2150,6 +2150,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   const [achievementToasts, setAchievementToasts] = useState([]);
   const [electrify, setElectrify] = useState(false);
   const earnedRef = useRef(null);
+  const answerLockedRef = useRef(false);
   const electrifyTimerRef = useRef(0);
   const [randomFact, setRandomFact] = useState("");
   const [runMetrics, setRunMetrics] = useState({
@@ -2292,6 +2293,12 @@ Can you beat my score? Play ThinkFastBlast!`;
       aiDifficulty,
     };
   }, [board, activePiece, gameState, isControllable, isPaused, level, correctStreak, invincibilityShields, heatLevel, coolingRemaining, questionIndex, shuffledQuestions, misses, questionsSinceLastRise, runMetrics, activeMutator, runMode, endlessLevel, speedWavePieces, isFrenzyActive, isDesperationActive, board2, activePiece2, totalScore2, correctStreak2, misses2, isControllable2, p1Answered, p2Answered, arenaMode, aiDifficulty]);
+
+  useEffect(() => {
+    if (gameState === "quiz" || gameState === "strike_recovery") {
+      answerLockedRef.current = false;
+    }
+  }, [gameState, questionIndex]);
 
 
 
@@ -2501,7 +2508,7 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Transient pop-up notifications (achievements, records). Auto-dismiss.
   const pushToast = useCallback((toast) => {
     const id = Math.random().toString(36).slice(2, 9);
-    setAchievementToasts((prev) => [...prev.slice(-2), { id, ...toast }]);
+    setAchievementToasts([{ id, ...toast }]);
     window.setTimeout(() => {
       setAchievementToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3400);
@@ -5199,11 +5206,12 @@ Can you beat my score? Play ThinkFastBlast!`;
     );
 
     const timer = setInterval(() => {
-      const { activePiece: piece, board: currentBoard } = stateRef.current;
+      const { activePiece: piece, board: currentBoard, activeMutator } = stateRef.current;
       if (!piece) return;
 
-      const movedPiece = { ...piece, y: piece.y + 1 };
-      if (!checkCollision(movedPiece, currentBoard)) {
+      const isInverse = activeMutator === "inverse_gravity";
+      const movedPiece = { ...piece, y: piece.y + (isInverse ? -1 : 1) };
+      if (!checkCollision(movedPiece, currentBoard, isInverse)) {
         setActivePiece(movedPiece);
       } else {
         clearInterval(timer);
@@ -5268,15 +5276,25 @@ Can you beat my score? Play ThinkFastBlast!`;
   // Quiz answers handler
   // -------------------------------------------------------------------------
   const handleAnswer = useCallback((selectedIndex) => {
-    if (stateRef.current.isPaused) return;
+    const currentGameState = stateRef.current.gameState;
+    if (
+      stateRef.current.isPaused ||
+      !["quiz", "strike_recovery"].includes(currentGameState) ||
+      answerLockedRef.current
+    ) return;
+
+    answerLockedRef.current = true;
     const question = shuffledQuestions[questionIndex];
-    if (!question) return;
+    if (!question) {
+      answerLockedRef.current = false;
+      return;
+    }
     const correct = selectedIndex === question.answer;
-    const { activePiece: piece, misses: currentMisses } = stateRef.current;
+    const { activePiece: piece, board: currentBoard, misses: currentMisses } = stateRef.current;
     rememberQuestionId(question.id);
 
     // Handle Strike Recovery Phase
-    if (stateRef.current.gameState === "strike_recovery") {
+    if (currentGameState === "strike_recovery") {
       if (correct) {
         playSFX("correct");
         triggerFlash("success");
@@ -5309,7 +5327,10 @@ Can you beat my score? Play ThinkFastBlast!`;
       return;
     }
 
-    if (!piece) return;
+    if (!piece) {
+      answerLockedRef.current = false;
+      return;
+    }
     setRunMetrics((metrics) => ({
       ...metrics,
       questions: metrics.questions + 1,
@@ -5524,13 +5545,12 @@ Can you beat my score? Play ThinkFastBlast!`;
 
         const isInverse = stateRef.current.activeMutator === "inverse_gravity";
         let y = stonePiece.y;
-        const currentBoardState = board;
         if (isInverse) {
-          while (!checkCollision({ ...stonePiece, y: y - 1 }, currentBoardState, true)) {
+          while (!checkCollision({ ...stonePiece, y: y - 1 }, currentBoard, true)) {
             y -= 1;
           }
         } else {
-          while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoardState)) {
+          while (!checkCollision({ ...stonePiece, y: y + 1 }, currentBoard)) {
             y += 1;
           }
         }
@@ -5543,7 +5563,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           timestamp: Date.now()
         });
 
-        const nextBoard = currentBoardState.map((row) => [...row]);
+        const nextBoard = currentBoard.map((row) => [...row]);
         lockedStonePiece.shape.forEach((row, shapeY) => {
           row.forEach((value, shapeX) => {
             if (!value) return;
@@ -5926,7 +5946,7 @@ Can you beat my score? Play ThinkFastBlast!`;
 
       {/* Achievement / record toasts */}
       {achievementToasts.length > 0 && (
-        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-[min(92vw,22rem)] pointer-events-none">
+        <div className="achievement-toast-stack fixed top-3 left-1/2 -translate-x-1/2 z-[60] flex flex-col items-center gap-2 w-[min(92vw,22rem)] pointer-events-none">
           {achievementToasts.map((t) => (
             <div key={t.id} className="achievement-toast w-full flex items-center gap-3 rounded-2xl border border-cyan-300/40 bg-slate-900/95 px-4 py-2.5 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
               <span className="text-2xl leading-none drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]">{t.emoji}</span>
@@ -6625,7 +6645,7 @@ Can you beat my score? Play ThinkFastBlast!`;
               )}
 
               {activeMutator && (
-                <div className={`game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
+                <div className={`mutator-active-banner game-board-width mt-2 p-2.5 rounded-xl border bg-gradient-to-r ${MUTATOR_DETAILS[activeMutator].color} text-[11px] font-black tracking-wide uppercase text-center shadow`}>
                   MUTATOR ACTIVE: {MUTATOR_DETAILS[activeMutator].emoji} {MUTATOR_DETAILS[activeMutator].name}
                 </div>
               )}
