@@ -1,4 +1,5 @@
 import { BOARD_HEIGHT, BOARD_WIDTH } from "../data/constants.js";
+import { compactBoardByGravity } from "./board.js";
 
 export const BOARD_POWERS = {
   power_tornado: {
@@ -85,34 +86,20 @@ export function getPowerCells(board, powerId) {
   return cells;
 }
 
-export function clearCellsWithGravity(board, cells) {
+export function clearCellsWithGravity(board, cells, inverseGravity = false) {
   const next = board.map((row) => [...row]);
   cells.forEach(({ y, x }) => {
     if (next[y]?.[x]) next[y][x] = null;
   });
 
-  for (let x = 0; x < BOARD_WIDTH; x += 1) {
-    let writeY = BOARD_HEIGHT - 1;
-    for (let y = BOARD_HEIGHT - 1; y >= 0; y -= 1) {
-      if (next[y][x]) {
-        next[writeY][x] = next[y][x];
-        if (writeY !== y) next[y][x] = null;
-        writeY -= 1;
-      }
-    }
-    while (writeY >= 0) {
-      next[writeY][x] = null;
-      writeY -= 1;
-    }
-  }
-  return next;
+  return compactBoardByGravity(next, inverseGravity);
 }
 
-export function applyBoardPower(board, powerId) {
+export function applyBoardPower(board, powerId, inverseGravity = false) {
   const cells = getPowerCells(board, powerId);
   return {
     cells,
-    board: clearCellsWithGravity(board, cells),
+    board: clearCellsWithGravity(board, cells, inverseGravity),
     cleared: cells.length,
   };
 }

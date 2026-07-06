@@ -29,12 +29,12 @@ test("combo meter state and UI integration", () => {
 test("escalating combo rewards trigger correctly on correct answers", () => {
   assert.match(
     compactSource,
-    /if \(nextStreak === 3\) \{ const powerResult = applyBoardPower\(board, "power_earthquake"\);/,
+    /if \(nextStreak === 3\) \{ const powerResult = applyBoardPower\(board, "power_earthquake", stateRef\.current\.activeMutator === "inverse_gravity"\);/,
     "Combo 3 should trigger Earthquake board clear"
   );
   assert.match(
     compactSource,
-    /\} else if \(nextStreak === 5\) \{ const powerResult = applyBoardPower\(board, "power_tornado"\);/,
+    /\} else if \(nextStreak === 5\) \{ const powerResult = applyBoardPower\(board, "power_tornado", stateRef\.current\.activeMutator === "inverse_gravity"\);/,
     "Combo 5 should trigger Tornado board clear"
   );
   assert.match(
@@ -44,7 +44,7 @@ test("escalating combo rewards trigger correctly on correct answers", () => {
   );
   assert.match(
     compactSource,
-    /\} else if \(nextStreak === 10\) \{ setInvincibilityShields\(\(prev\) => Math\.min\(3, prev \+ 1\)\); const powerResult = applyBoardPower\(board, "power_flood"\);/,
+    /\} else if \(nextStreak === 10\) \{ setInvincibilityShields\(\(prev\) => Math\.min\(3, prev \+ 1\)\); const powerResult = applyBoardPower\(board, "power_flood", stateRef\.current\.activeMutator === "inverse_gravity"\);/,
     "Combo 10 should reward both a shield and Flash Flood board clear"
   );
 });

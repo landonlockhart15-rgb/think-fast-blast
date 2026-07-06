@@ -2564,7 +2564,11 @@ Can you beat my score? Play ThinkFastBlast!`;
     if (!power || usedPowers.includes(powerId) || !stats.unlockedItems.includes(powerId)) return;
     if (current.gameState !== "quiz" || current.isPaused) return;
 
-    const result = applyBoardPower(current.board, powerId);
+    const result = applyBoardPower(
+      current.board,
+      powerId,
+      current.activeMutator === "inverse_gravity"
+    );
     if (!result.cleared) {
       pushToast({ kind: "info", emoji: "✓", title: "Board Clear", desc: "Save that power for when blocks are stacked." });
       return;
@@ -5372,7 +5376,7 @@ Can you beat my score? Play ThinkFastBlast!`;
       let powerSFXName = null;
 
       if (nextStreak === 3) {
-        const powerResult = applyBoardPower(board, "power_earthquake");
+        const powerResult = applyBoardPower(board, "power_earthquake", stateRef.current.activeMutator === "inverse_gravity");
         if (powerResult.cleared > 0) {
           nextBoard = powerResult.board;
           cellsToExplode = powerResult.cells;
@@ -5386,7 +5390,7 @@ Can you beat my score? Play ThinkFastBlast!`;
           addFloatingText("COMBO x3! ⚡", piece?.x || 4, piece?.y || 4);
         }
       } else if (nextStreak === 5) {
-        const powerResult = applyBoardPower(board, "power_tornado");
+        const powerResult = applyBoardPower(board, "power_tornado", stateRef.current.activeMutator === "inverse_gravity");
         if (powerResult.cleared > 0) {
           nextBoard = powerResult.board;
           cellsToExplode = powerResult.cells;
@@ -5405,7 +5409,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         playSFX("streak");
       } else if (nextStreak === 10) {
         setInvincibilityShields((prev) => Math.min(3, prev + 1));
-        const powerResult = applyBoardPower(board, "power_flood");
+        const powerResult = applyBoardPower(board, "power_flood", stateRef.current.activeMutator === "inverse_gravity");
         if (powerResult.cleared > 0) {
           nextBoard = powerResult.board;
           cellsToExplode = powerResult.cells;
@@ -5420,7 +5424,7 @@ Can you beat my score? Play ThinkFastBlast!`;
         }
       } else if (nextStreak >= 13 && (nextStreak - 10) % 3 === 0) {
         setInvincibilityShields((prev) => Math.min(3, prev + 1));
-        const powerResult = applyBoardPower(board, "power_fire");
+        const powerResult = applyBoardPower(board, "power_fire", stateRef.current.activeMutator === "inverse_gravity");
         if (powerResult.cleared > 0) {
           nextBoard = powerResult.board;
           cellsToExplode = powerResult.cells;

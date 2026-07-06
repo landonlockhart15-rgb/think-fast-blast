@@ -14,7 +14,20 @@ test("tornado removes the two highest occupied layers and gravity settles column
   board[10][0] = cell;
   const result = applyBoardPower(board, "power_tornado");
   assert.deepEqual(result.cells, [{ y: 4, x: 0 }, { y: 6, x: 1 }]);
-  assert.equal(result.board[BOARD_HEIGHT - 1][0], cell);
+  assert.equal(result.board[BOARD_HEIGHT - 1][0].color, cell.color);
+});
+
+test("board powers settle upward during inverse gravity", () => {
+  const board = emptyBoard();
+  board[0][0] = cell;
+  board[4][0] = { color: "bg-green-500" };
+  board[7][0] = { color: "bg-yellow-400" };
+
+  const result = applyBoardPower(board, "power_tornado", true);
+
+  assert.deepEqual(result.cells, [{ y: 0, x: 0 }, { y: 4, x: 0 }]);
+  assert.equal(result.board[0][0].color, "bg-yellow-400");
+  assert.equal(result.board[BOARD_HEIGHT - 1][0], null);
 });
 
 test("earthquake removes the lowest occupied layer", () => {
