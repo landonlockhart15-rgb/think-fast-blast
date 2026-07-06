@@ -12,6 +12,11 @@ challenge.
 
 Play it here: https://thinkfastblast.netlify.app
 
+> **Status: active beta.** Versions are `0.x` on purpose — this is still in
+> active development and you will run into bugs. Known rough edges are being
+> worked through; if you hit something broken, it's a known work-in-progress,
+> not you doing something wrong.
+
 ## Gameplay
 
 Answer trivia to earn control of falling pieces. Correct answers let you place
