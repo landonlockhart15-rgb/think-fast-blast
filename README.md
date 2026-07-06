@@ -97,3 +97,7 @@ src/game/onlineArena.js Cross-device arena board and room helpers
 src/game/OnlineArenaView.jsx Online room, presence, and match UI
 src/index.css           Tailwind entry, animations, and responsive game styles
 ```
+
+## Credits
+
+Made by **LockhartLabs**.
