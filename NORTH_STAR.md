@@ -7,7 +7,7 @@
 > no user-growth target. Optimize for craft and delight, not metrics.
 
 ## What this really is
-The owner's **premier and only game** — a **feature-packed, fast-paced quiz /
+The owner's **premier game** — a **feature-packed, fast-paced quiz /
 block-blast** game that players get **addicted** to while they learn and have fun
 at the same time. Falling-block match mechanics fused with trivia/learning, built
 to feel like a *real* arcade game — game-feel, dopamine, particles, sound,
