@@ -33,6 +33,32 @@ const getAudioContext = () => {
   return scope.AudioContext || scope.webkitAudioContext || null;
 };
 
+// Mobile browsers start AudioContext suspended until a user gesture.
+// Attach one-time unlock listeners at module load so the first tap/key
+// resumes the context even when music was started from a non-gesture effect.
+const unlockAudioContext = () => {
+  try {
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume();
+    } else if (!audioCtx && audioEnabled) {
+      // Create the graph inside the gesture so it starts running immediately.
+      ensureGraph();
+      if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    }
+  } catch {
+    // Audio is best-effort; never break the game over it.
+  }
+};
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  const unlockOpts = { passive: true };
+  window.addEventListener("pointerdown", unlockAudioContext, unlockOpts);
+  window.addEventListener("touchend", unlockAudioContext, unlockOpts);
+  window.addEventListener("keydown", unlockAudioContext, unlockOpts);
+}
+
+export const unlockAudio = unlockAudioContext;
+
 const connectNodeChain = (...nodes) => {
   for (let i = 0; i < nodes.length - 1; i += 1) {
     nodes[i].connect(nodes[i + 1]);
