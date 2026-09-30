@@ -6,13 +6,12 @@ export function QuickAnswerTimer({ startTime, active, windowSeconds = 2.2 }) {
 
   useEffect(() => {
     if (!active || !startTime) return undefined;
-    let raf;
-    const tick = () => {
-      setElapsed((Date.now() - startTime) / 1000);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    // 10fps is plenty for a bonus bar; rAF at 60fps was re-rendering the
+    // whole quiz panel every frame and draining mobile batteries.
+    const tick = () => setElapsed((Date.now() - startTime) / 1000);
+    tick();
+    const id = setInterval(tick, 100);
+    return () => clearInterval(id);
   }, [active, startTime]);
 
   const WINDOW = windowSeconds;

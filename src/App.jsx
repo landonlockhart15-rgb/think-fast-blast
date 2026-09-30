@@ -3901,38 +3901,120 @@ Can you beat my score? Play ThinkFastBlast!`;
     setGameState(state === "arena_dropping" ? "arena_resolving" : "resolving");
   }, [triggerShake, triggerBoardRecoil, vibrate, setLastPlacedPiece]);
 
+  // -----------------------------------------------------------------------
+  // Mobile board controls: drag to slide the piece cell-by-cell, quick tap
+  // to rotate, fast swipe down for hard drop, press-and-hold downward for
+  // soft drop. The old swipe handling moved a single cell per gesture,
+  // which made precise placement on a phone nearly impossible.
+  // -----------------------------------------------------------------------
   const handleBoardTouchStart = (event) => {
     if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
     event.preventDefault();
     const touch = event.touches[0];
-    touchStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+    const rect = event.currentTarget.getBoundingClientRect();
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+      // Pixels per board column, measured live so it tracks zoom/layout.
+      cellPx: rect.width / BOARD_WIDTH,
+      // Last drag position already applied, for incremental cell stepping.
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+      softDropTimer: null,
+      moved: false,
+    };
+  };
+
+  const handleBoardTouchMove = (event) => {
+    const drag = touchStartRef.current;
+    if (!drag || stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    event.preventDefault();
+    const touch = event.touches[0];
+    const dx = touch.clientX - drag.lastX;
+    const dy = touch.clientY - drag.y;
+
+    // Horizontal drag: step one cell per column-width of travel. Walk the
+    // piece with a local copy instead of calling moveHorizontal() per cell:
+    // moveHorizontal reads the piece from stateRef, which only syncs after
+    // render, so repeated synchronous calls would all start from the same
+    // cell and collapse a multi-cell drag into a single step.
+    const cells = Math.trunc(dx / drag.cellPx);
+    if (cells !== 0) {
+      const step = cells > 0 ? 1 : -1;
+      const { activePiece: piece, board: currentBoard, activeMutator } = stateRef.current;
+      const isInverse = activeMutator === "inverse_gravity";
+      let next = piece;
+      let applied = 0;
+      while (applied !== cells) {
+        const candidate = { ...next, x: next.x + step };
+        if (checkCollision(candidate, currentBoard, isInverse)) break;
+        next = candidate;
+        applied += step;
+      }
+      if (applied !== 0) {
+        setActivePiece(next);
+        drag.lastX += applied * drag.cellPx;
+        drag.moved = true;
+      }
+      if (applied !== cells && piece && piece.isSlime) {
+        // Matches moveHorizontal(): a slime piece slammed into a wall sticks.
+        addFloatingText("STUCK! 🦠", piece.x, piece.y);
+        lockPiece();
+        drag.moved = true;
+      }
+    }
+
+    // Press-and-hold downward: soft drop while the finger stays low.
+    // Starts after the finger travels ~2.5 rows down and stays there.
+    if (dy > drag.cellPx * 2.5 && !drag.softDropTimer) {
+      drag.moved = true;
+      drag.softDropTimer = setInterval(() => {
+        if (stateRef.current.gameState !== "dropping" || stateRef.current.isPaused) {
+          clearInterval(drag.softDropTimer);
+          drag.softDropTimer = null;
+          return;
+        }
+        moveDown();
+      }, 45);
+    }
+    drag.lastY = touch.clientY;
   };
 
   const handleBoardTouchEnd = (event) => {
-    const start = touchStartRef.current;
+    const drag = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start || stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
+    if (!drag) return;
+    if (drag.softDropTimer) {
+      clearInterval(drag.softDropTimer);
+    }
+    if (stateRef.current.isPaused || stateRef.current.gameState !== "dropping" || !stateRef.current.isControllable) return;
     event.preventDefault();
 
     const touch = event.changedTouches[0];
-    const dx = touch.clientX - start.x;
-    const dy = touch.clientY - start.y;
+    const dx = touch.clientX - drag.x;
+    const dy = touch.clientY - drag.y;
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
-    const quickTap = Date.now() - start.time < 260 && absX < 14 && absY < 14;
+    const duration = Date.now() - drag.time;
+    const quickTap = duration < 260 && absX < 14 && absY < 14;
 
     if (quickTap) {
       rotatePiece();
       return;
     }
 
-    if (absX > absY && absX > 18) {
-      moveHorizontal(dx > 0 ? 1 : -1);
+    // Fast downward flick: hard drop. (Slow press-hold already soft-dropped.)
+    const fastFlick = duration < 350 && dy > 48 && dy > absX * 1.4;
+    if (fastFlick) {
+      hardDrop();
       return;
     }
 
-    if (dy > 20) {
-      moveDown();
+    // A deliberate horizontal swipe with no drag movement yet: nudge once,
+    // preserving the old feel for players used to it.
+    if (!drag.moved && absX > absY && absX > 18) {
+      moveHorizontal(dx > 0 ? 1 : -1);
     }
   };
 
@@ -4856,9 +4938,15 @@ Can you beat my score? Play ThinkFastBlast!`;
   ]);
 
   // Evolving Background Music Controller
+  // NOTE: the board changes every gravity tick, so we key restarts off a
+  // musical signature (bpm/scale/scene/fever) instead of raw board state.
+  // Restarting the arpeggiator interval dozens of times per second was
+  // churning timers and burning mobile battery for no audible benefit.
+  const musicSignatureRef = useRef("");
   useEffect(() => {
     if (isPaused) {
       stopArpeggiator();
+      musicSignatureRef.current = "";
       return undefined;
     }
 
@@ -4879,13 +4967,20 @@ Can you beat my score? Play ThinkFastBlast!`;
       const isFever = correctStreak >= 5 || (arenaMode && correctStreak2 >= 5);
       const activeStreak = arenaMode ? Math.max(correctStreak, correctStreak2) : correctStreak;
 
-      startArpeggiator(bpm, scaleType, intensity, "game", isFever, activeStreak);
+      // Bucket the continuous values so tiny fluctuations don't restart music.
+      const signature = [bpm, scaleType, isFever ? "fever" : "calm", Math.round(intensity * 4), gameState === "intro" || gameState === "arena_intro" ? "intro" : "game"].join("|");
+      if (signature !== musicSignatureRef.current) {
+        musicSignatureRef.current = signature;
+        startArpeggiator(bpm, scaleType, intensity, "game", isFever, activeStreak);
+      }
     } else {
+      musicSignatureRef.current = "";
       stopArpeggiator();
     }
 
     return () => {
       if (["start", "level_win", "gameover", "arena_win"].includes(gameState)) {
+        musicSignatureRef.current = "";
         stopArpeggiator();
       }
     };
@@ -5145,6 +5240,59 @@ Can you beat my score? Play ThinkFastBlast!`;
     window.addEventListener("keydown", handleKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [hardDrop, moveDown, moveHorizontal, rotatePiece, holdCurrentPiece, moveHorizontal2, moveDown2, rotatePiece2, hardDrop2, handleArenaAnswer]);
+
+  // -------------------------------------------------------------------------
+  // Auto-pause when the tab/app is backgrounded (mobile: switching apps,
+  // locking the phone, pulling down notifications). Without this the quiz
+  // timer and gravity keep running while the player can't see the game.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const autoPause = () => {
+      const s = stateRef.current;
+      if (!s.isPaused && PLAYABLE_STATES.has(s.gameState)) {
+        setIsPaused(true);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) autoPause();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("blur", autoPause);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("blur", autoPause);
+    };
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Screen wake lock during active play (mobile): keeps the display from
+  // dimming/locking mid-run. Released on pause or when the run ends.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    let lock = null;
+    let cancelled = false;
+    const requestLock = async () => {
+      try {
+        if (!("wakeLock" in navigator)) return;
+        if (cancelled || stateRef.current.isPaused) return;
+        if (!PLAYABLE_STATES.has(stateRef.current.gameState)) return;
+        lock = await navigator.wakeLock.request("screen");
+      } catch {
+        // Best-effort; not all browsers/contexts grant it.
+        lock = null;
+      }
+    };
+    requestLock();
+    return () => {
+      cancelled = true;
+      try {
+        if (lock) lock.release();
+      } catch {
+        // ignore
+      }
+      lock = null;
+    };
+  }, [gameState, isPaused]);
 
   // -------------------------------------------------------------------------
   // Level Wind Turbulence (Level 7 & 8)
@@ -5803,7 +5951,7 @@ Can you beat my score? Play ThinkFastBlast!`;
     : "gameplay-panel w-full md:w-[58%] md:max-h-none flex flex-col items-center md:items-start p-3 md:p-5 bg-slate-800/80 backdrop-blur-lg border border-slate-700/50 rounded-2xl shadow-2xl min-h-0 justify-start md:justify-center text-center md:text-left relative overflow-hidden z-10";
 
   return (
-    <div className={`h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation ${reduceMotion ? "reduced-motion" : ""} ${highContrast ? "high-contrast" : ""}`}>
+    <div className={`h-dvh animated-bg text-slate-100 font-sans flex flex-col items-center p-2 md:p-4 overflow-hidden touch-manipulation ${reduceMotion ? "reduced-motion" : ""} ${highContrast ? "high-contrast" : ""}`} style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))", paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))", paddingLeft: "max(0.5rem, env(safe-area-inset-left))", paddingRight: "max(0.5rem, env(safe-area-inset-right))" }}>
       <Confetti active={gameState === "level_win"} />
       <ScreenFlash tone={flashColor} />
       {showOnboarding && gameState === "start" && (
@@ -6693,6 +6841,7 @@ Can you beat my score? Play ThinkFastBlast!`;
             <div
               className={`game-board ${getBoardThemeClass(stats.activeTheme)} p-1 rounded-lg aspect-[10/16] grid grid-rows-16 grid-cols-10 gap-px mx-auto shadow-2xl relative overflow-hidden touch-none ${shake ? (isDesperationActive || heatLevel >= 3 || correctStreak >= 5 || misses >= strikeLimit - 1 ? "animate-shake-amplified" : "animate-shake") : ""} ${boardRecoil ? "animate-board-recoil" : ""} ${boardThump ? "animate-board-thump" : ""} ${isDesperationActive ? "desperation-active animate-critical-shake" : coolingRemaining > 0 ? "cooling-active" : (heatLevel === 5 || correctStreak >= 5) ? "fever-active" : heatLevel === 4 ? "combo-heat-3" : heatLevel === 3 ? "combo-heat-2" : (heatLevel >= 1 || correctStreak >= 3) ? "combo-heat-1" : ""} ${heatLevel === 3 || heatLevel === 4 ? "chromatic-aberration-1" : heatLevel === 5 ? "chromatic-aberration-2" : ""} ${electrify ? "electrify-active" : ""}`}
               onTouchStart={handleBoardTouchStart}
+              onTouchMove={handleBoardTouchMove}
               onTouchEnd={handleBoardTouchEnd}
             >
               {displayBoard.map((row, y) =>
